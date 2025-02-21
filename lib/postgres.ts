@@ -1,7 +1,6 @@
-import "dotenv/config"
-import { Client } from "pg"
+import { Pool } from "pg"
 
-const postgres = new Client({
+const postgres = new Pool({
   connectionString: process.env.POSTGRES_URL
 })
 
