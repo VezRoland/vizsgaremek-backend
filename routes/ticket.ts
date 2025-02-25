@@ -1,5 +1,5 @@
 import { Router, type Request } from "express"
-import { object, string } from "zod"
+import { boolean, object, string } from "zod"
 import postgres from "../lib/postgres.ts"
 import { getUserFromCookie } from "../lib/utils.ts"
 import type { ServerResponse } from "../lib/types/response.ts"
@@ -193,6 +193,96 @@ router.get("/tickets/:id", getUserFromCookie, async (req: Request, res) => {
 			type: "message",
 			messageType: "error",
 			message: "Nem sikerült lekérni a hibajegyet!"
+		} satisfies ServerResponse);
+	}
+});
+
+router.patch("/tickets/:id/status", getUserFromCookie, async (req : Request, res) => {
+	const user = req.user;
+	const { id } = req.params;
+
+	const schema = object({ status: boolean() });
+	const validation = schema.safeParse(req.body);
+
+	if (!user) {
+		return res.status(401).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nincs bejelentkezve!",
+		} satisfies ServerResponse);
+	}
+
+	if (!validation.success) {
+		return res.status(400).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Hibás státuszérték! Csak 'true' vagy 'false' lehet.",
+		} satisfies ServerResponse);
+	}
+
+	let adminQuery = 'SELECT role, company_id FROM "user" WHERE id = $1';
+	let adminParams = [user.id];
+	const adminResult = await postgres.query(adminQuery, adminParams);
+
+	if (adminResult.rows.length === 0) {
+		return res.status(401).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nincs jogosultságod a hibajegyek frissítéséhez!",
+		} satisfies ServerResponse);
+	}
+
+	const userRole = adminResult.rows[0].role;
+	const companyId = adminResult.rows[0].company_id;
+
+	if (userRole !== 2 && userRole !== 3) {
+		return res.status(403).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nincs jogosultság a hibajegy frissítéséhez!",
+		} satisfies ServerResponse);
+	}
+
+	const { status } = validation.data;
+
+	let query = "UPDATE ticket SET closed = $1 WHERE id = $2 RETURNING *";
+	let params: any[] = [status, id];
+
+	if (userRole === 3) {
+		query += " AND user_id = $3";
+		params.push(user.id);
+	}
+
+	try {
+		const result = await postgres.query(query, params);
+
+		if (result.rows.length === 0) {
+			return res.status(404).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "A hibajegy nem található vagy nincs jogosultságod frissíteni!",
+			} satisfies ServerResponse);
+		}
+
+		res.json({
+			error: false,
+			type: "message",
+			messageType: "success",
+			message: `A hibajegy státusza sikeresen frissítve: ${status ? "Kész" : "Folyamatban"}`,
+		} satisfies ServerResponse);
+	} catch (err: any) {
+		console.error("Database error:", err);
+
+		res.status(500).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nem sikerült frissíteni a hibajegy státuszát!",
 		} satisfies ServerResponse);
 	}
 });
