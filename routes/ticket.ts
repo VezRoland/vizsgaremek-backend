@@ -56,3 +56,61 @@ router.post("/tickets", getUserFromCookie, async (req: Request, res) => {
 		} satisfies ServerResponse);
 	}
 });
+
+// Get all tickets
+router.get("/tickets", getUserFromCookie, async (req: Request, res) => {
+	const user = req.user;
+
+	if (!user) {
+		return res.status(401).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nincs bejelentkezve!",
+		} satisfies ServerResponse);
+	}
+
+	try {
+		await postgres.connect();
+		let query = "SELECT * FROM ticket";
+		let params: any[] = [];
+
+		let adminQuery = 'SELECT role, company_id FROM "user" WHERE id = $1';
+		let adminParams = [user.id];
+		const adminResult = await postgres.query(adminQuery, adminParams);
+
+		if (adminResult.rows.length === 0) {
+			return res.status(401).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Nincs jogosultságod a hibajegyek lekéréséhez!"
+			} satisfies ServerResponse);
+		}
+
+		if (adminResult.rows[0].role === 2) {
+			query += " WHERE user_id = $1 OR company_id = $2";
+			params.push(user.id, adminResult.rows[0].company_id);
+		} else if (adminResult.rows[0].role === 3) {
+			query += " WHERE user_id = $1";
+			params.push(user.id);
+		}
+
+		const result = await postgres.query(query, params);
+
+		res.json({
+			error: false,
+			type: "message",
+			messageType: "success",
+			message: "Sikeres lekérés!",
+			// tickets: result.rows
+		} satisfies ServerResponse);
+	} catch (err: any) {
+		res.status(500).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nem sikerült lekérni a hibajegyeket!"
+		} satisfies ServerResponse);
+	}
+});
