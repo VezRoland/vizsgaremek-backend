@@ -1,7 +1,9 @@
 import { User } from "@supabase/supabase-js"
 
-declare module "express" {
-	interface Request {
-		user?: User
+declare global {
+	namespace Express {
+		export interface Request {
+			user?: User
+		}
 	}
 }
