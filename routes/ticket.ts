@@ -6,8 +6,9 @@ import type { ServerResponse } from "../lib/types/response.ts"
 
 const router = Router()
 
+
 // Create new ticket
-router.post("/tickets", getUserFromCookie, async (req: Request, res) => {
+router.post("/ticket", getUserFromCookie, async (req: Request, res) => {
 	const schema = object({ title: string().min(3), content: string().min(10) });
 	const validation = schema.safeParse(req.body);
 	const user = req.user;
@@ -97,6 +98,16 @@ router.get("/tickets", getUserFromCookie, async (req: Request, res) => {
 		}
 
 		const result = await postgres.query(query, params);
+		await postgres.end();
+
+		if (result.rows.length === 0) {
+			return res.status(404).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "A hibajegyek nem találhatóak, vagy nincs jogosultsága megtekinteni.",
+			} satisfies ServerResponse);
+		}
 
 		res.json({
 			error: false,
@@ -111,6 +122,77 @@ router.get("/tickets", getUserFromCookie, async (req: Request, res) => {
 			type: "message",
 			messageType: "error",
 			message: "Nem sikerült lekérni a hibajegyeket!"
+		} satisfies ServerResponse);
+	}
+});
+
+// Get a single ticket
+router.get("/tickets/:id", getUserFromCookie, async (req: Request, res) => {
+	const user = req.user;
+	const { id } = req.params;
+
+	if (!user) {
+		return res.status(401).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nincs bejelentkezve!",
+		} satisfies ServerResponse);
+	}
+
+	try {
+		await postgres.connect();
+		let query = "SELECT * FROM ticket WHERE id = $1";
+		let params: any[] = [id];
+
+		let adminQuery = 'SELECT role, company_id FROM "user" WHERE id = $1';
+		let adminParams = [user.id];
+		const adminResult = await postgres.query(adminQuery, adminParams);
+
+		if (adminResult.rows.length === 0) {
+			return res.status(401).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Nincs jogosultságod a hibajegyek lekéréséhez!"
+			} satisfies ServerResponse);
+		}
+
+		if (adminResult.rows[0].role === 2) {
+			query += " WHERE user_id = $1 OR company_id = $2";
+			params.push(user.id, adminResult.rows[0].company_id);
+		} else if (adminResult.rows[0].role === 3) {
+			query += " WHERE user_id = $1";
+			params.push(user.id);
+		}
+
+		const result = await postgres.query(query, params);
+		await postgres.end();
+
+		if (result.rows.length === 0) {
+			return res.status(404).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "A hibajegy nem található, vagy nincs jogosultsága megtekinteni.",
+			} satisfies ServerResponse);
+		}
+
+		res.json({
+			error: false,
+			type: "message",
+			messageType: "success",
+			message: "Sikeres lekérés!"
+			// data: result.rows[0],
+		} satisfies ServerResponse);
+	} catch (err: any) {
+		console.error("Database error:", err);
+
+		res.status(500).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Nem sikerült lekérni a hibajegyet!"
 		} satisfies ServerResponse);
 	}
 });
