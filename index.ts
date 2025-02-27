@@ -1,11 +1,12 @@
-import express, { type Request } from "express"
+import express from "express"
 import cors from "cors"
-import postgres from "./lib/postgres"
 import cookieParser from "cookie-parser"
-import { object, string, z } from "zod"
+import postgres from "./lib/postgres"
 import { getUserFromCookie } from "./lib/utils"
+import { object, string, z } from "zod"
 
-import type { ServerResponse } from "./types/response"
+import type { NextFunction, Request, Response } from "express"
+import type { ApiResponse } from "./types/response"
 import type { signUpEmployeeSchema } from "./schemas/auth"
 
 const PORT = process.env.PORT || 3000
@@ -16,77 +17,76 @@ app.use(cors({ credentials: true, origin: ORIGIN }))
 app.use(express.json())
 app.use(cookieParser())
 
-app.get("/user", getUserFromCookie, async (req, res) => {
-  try {
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+	console.error(err.stack)
+
+	res.status(500).json({
+		status: "error",
+		message: "There was an unexpected error. Try again later!"
+	} satisfies ApiResponse)
+})
+
+app.get("/user", getUserFromCookie, async (req, res, next) => {
+	try {
 		const result = await postgres.query(
 			"SELECT * FROM public.user WHERE id = $1::uuid",
 			[req.user!.id]
 		)
-    
-		res.json(result.rows[0])
+
+		res.json({
+			status: "success",
+			message: "Successful authorization.",
+			data: result.rows[0]
+		} satisfies ApiResponse)
 	} catch (error) {
-		res.status(500).json({
-			error: true,
-			type: "message",
-			message: "Váratlan hiba történt. Próbálja újra!",
-			messageType: "error"
-		} satisfies ServerResponse)
+		next(error)
 	}
 })
 
-
-app.get("/company/:code", async (req, res) => {
+app.get("/company/:code", async (req, res, next) => {
 	const { code } = req.params
 
 	try {
 		const result = await postgres.query(
-			"SELECT * FROM public.company WHERE code = $1::text",
+			"SELECT * FROM company WHERE code = $1::text",
 			[code]
 		)
 
 		if (result.rows.length === 0) {
 			res.status(404).json({
-				error: true,
-				type: "field",
-				fields: { code: "Érvénytelen cég kód!" }
-			} satisfies ServerResponse<z.infer<typeof signUpEmployeeSchema>>)
+				status: "error",
+				message: "There isn't any company with the provided code.",
+				errors: { code: "Invalid company code" }
+			} satisfies ApiResponse<null, Partial<z.infer<typeof signUpEmployeeSchema>>>)
 		} else res.json(result.rows[0])
 	} catch (error) {
-		res.status(500).json({
-			error: true,
-			type: "message",
-			message: "Váratlan hiba történt. Próbálja újra!",
-			messageType: "error"
-		} satisfies ServerResponse)
+		next(error)
 	}
 })
 
-app.post("/company", async (req, res) => {
+app.post("/company", async (req: Request, res, next) => {
 	const { data, success, error } = object({ name: string() }).safeParse(
 		req.body
 	)
 
 	if (error || !success) {
-		res.status(500).json({
-			error: true,
-			type: "message",
-			message: "Váratlan hiba történt. Próbálja újra!",
-			messageType: "error"
-		} satisfies ServerResponse)
+		res.status(400).json({
+			status: "error",
+			message: "The provided data is incorrect."
+		} satisfies ApiResponse)
 	} else {
 		try {
 			await postgres.query(
-				"INSERT INTO public.company (name, code) VALUES ($1::text, $2::text)",
+				"INSERT INTO company (name, code) VALUES ($1::text, $2::text)",
 				[data.name, crypto.randomUUID().substring(0, 8)]
 			)
-			res.status(201).json({})
+
+			res.status(201).json({
+				status: "success",
+				message: "The company was successfully signed up."
+			} satisfies ApiResponse)
 		} catch (error) {
-			res.status(500).json({
-				error: true,
-				type: "message",
-				message: "Váratlan hiba történt. Próbálja újra!",
-				messageType: "error"
-			} satisfies ServerResponse)
+			next(error)
 		}
 	}
 })

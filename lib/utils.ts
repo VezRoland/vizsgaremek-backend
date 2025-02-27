@@ -1,7 +1,7 @@
 import { supabase } from "./supabase"
 import type { NextFunction, Request, Response } from "express"
 
-import type { ServerResponse } from "../types/response"
+import type { ApiResponse } from "../types/response"
 
 export const getUserFromCookie = async (
 	request: Request,
@@ -14,11 +14,9 @@ export const getUserFromCookie = async (
 	if (!authCookie)
 		return next(
 			response.status(401).json({
-				error: true,
-				type: "message",
-				message: "Ön nincs bejelentkezve. Lépjen be fiókjába!",
-				messageType: "info"
-			} satisfies ServerResponse)
+				status: "error",
+				message: "You are not logged in. Sign into your account!"
+			} satisfies ApiResponse)
 		)
 
 	const accessToken = JSON.parse(
@@ -26,15 +24,16 @@ export const getUserFromCookie = async (
 	).access_token
 
 	const { data, error } = await supabase.auth.getUser(accessToken)
-	if (error)
+	if (error) {
+		if (error.code !== "no_authorization") return next(error)
+
 		return next(
 			response.status(401).json({
-				error: true,
-				type: "message",
-				message: "Ön nincs bejelentkezve. Lépjen be fiókjába!",
-				messageType: "info"
-			} satisfies ServerResponse)
+				status: "error",
+				message: "You are not logged in. Sign into your account!"
+			} satisfies ApiResponse)
 		)
+	}
 
 	request.user = data.user
 	next()
