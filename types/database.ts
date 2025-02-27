@@ -6,5 +6,6 @@ export interface Ticket {
   content: string,
   closed: boolean,
   userId: string,
+  companyId: string,
   created_at: string
 }
