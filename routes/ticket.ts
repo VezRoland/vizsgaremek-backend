@@ -337,3 +337,89 @@ router.post("/tickets/:id/response", getUserFromCookie, async (req: Request, res
 		await postgres.end();
 	}
 });
+
+router.get("/tickets/:id/responses", getUserFromCookie, async (req: Request, res: Response) => {
+	const user = req.user;
+	const { id: ticketId } = req.params;
+
+	if (!validateUser(user, res)) return;
+
+	try {
+		await postgres.connect();
+
+		// Fetch the ticket and the user's role/company
+		const ticketQuery = "SELECT * FROM ticket WHERE id = $1";
+		const ticketResult = await postgres.query(ticketQuery, [ticketId]);
+
+		if (ticketResult.rows.length === 0) {
+			return res.status(404).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "A hibajegy nem található!",
+			} satisfies ServerResponse);
+		}
+
+		const ticket = ticketResult.rows[0];
+		const userQuery = 'SELECT role, company_id FROM "user" WHERE id = $1';
+		const userResult = await postgres.query(userQuery, [user.id]);
+
+		if (userResult.rows.length === 0) {
+			return res.status(401).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Hibás felhasználó.",
+			} satisfies ServerResponse);
+		}
+
+		const { role, company_id: userCompanyId } = userResult.rows[0];
+
+		// Check permissions based on role
+		let hasPermission = false;
+
+		if (role === 1) {
+			// Project Administrator: Can view responses for tickets without a company_id
+			hasPermission = ticket.company_id === null;
+		} else if (role === 2) {
+			// Company Moderator: Can view responses for tickets with the same company_id or their own tickets
+			hasPermission = ticket.company_id === userCompanyId || ticket.user_id === user.id;
+		} else if (role === 3) {
+			// Company User: Can view responses only for their own tickets
+			hasPermission = ticket.user_id === user.id;
+		}
+
+		if (!hasPermission) {
+			return res.status(403).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Nincs jogosultságod megtekinteni a hibajegy válaszait!",
+			} satisfies ServerResponse);
+		}
+
+		// Fetch all responses for the ticket, ordered by creation time (oldest first)
+		const responsesQuery = `
+        SELECT tr.*, u.name
+        FROM ticket_response tr
+                 JOIN "user" u ON tr.user_id = u.id
+        WHERE tr.ticket_id = $1
+        ORDER BY tr.created_at
+		`;
+		const responsesResult = await postgres.query(responsesQuery, [ticketId]);
+
+		res.json({
+			message: {
+				error: false,
+				type: "message",
+				messageType: "success",
+				message: "Sikeres válaszok lekérése!",
+			} satisfies ServerResponse,
+			data: responsesResult.rows,
+		});
+	} catch (error) {
+		handleDatabaseError(res, error);
+	} finally {
+		await postgres.end();
+	}
+});
