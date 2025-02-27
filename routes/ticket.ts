@@ -254,3 +254,86 @@ router.patch("/tickets/:id/status", getUserFromCookie, async (req: Request, res:
 		await postgres.end()
 	}
 })
+
+router.post("/tickets/:id/response", getUserFromCookie, async (req: Request, res: Response) => {
+	const schema = object({ content: string().min(10) });
+	const user = req.user;
+	const { id: ticketId } = req.params;
+
+	if (!validateUser(user, res)) return;
+
+	const data = validateRequestBody(schema, req.body, res);
+	if (!data) return;
+
+	const { content } = data;
+
+	try {
+		await postgres.connect();
+
+		// Fetch the ticket and the user's role/company
+		const ticketQuery = "SELECT * FROM ticket WHERE id = $1";
+		const ticketResult = await postgres.query(ticketQuery, [ticketId]);
+
+		if (ticketResult.rows.length === 0) {
+			return res.status(404).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "A hibajegy nem található!",
+			} satisfies ServerResponse);
+		}
+
+		const ticket = ticketResult.rows[0];
+		const userQuery = 'SELECT role, company_id FROM "user" WHERE id = $1';
+		const userResult = await postgres.query(userQuery, [user.id]);
+
+		if (userResult.rows.length === 0) {
+			return res.status(401).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Hibás felhasználó.",
+			} satisfies ServerResponse);
+		}
+
+		const { role, company_id: userCompanyId } = userResult.rows[0];
+
+		// Check permissions based on role
+		let hasPermission = false;
+
+		if (role === 1) {
+			// Project Administrator: Can respond to tickets without a company_id
+			hasPermission = ticket.company_id === null;
+		} else if (role === 2) {
+			// Company Moderator: Can respond to tickets with the same company_id
+			hasPermission = ticket.company_id === userCompanyId || ticket.user_id === user.id;
+		} else if (role === 3) {
+			// Company User: Can respond only to their own tickets
+			hasPermission = ticket.user_id === user.id;
+		}
+
+		if (!hasPermission) {
+			return res.status(403).json({
+				error: true,
+				type: "message",
+				messageType: "error",
+				message: "Nincs jogosultságod válaszolni erre a hibajegyre!",
+			} satisfies ServerResponse);
+		}
+
+		// Insert the response into the ticket_response table
+		const responseQuery = "INSERT INTO ticket_response (content, ticket_id, user_id) VALUES ($1, $2, $3) RETURNING *";
+		const responseResult = await postgres.query(responseQuery, [content, ticketId, user.id]);
+
+		res.status(201).json({
+			error: false,
+			type: "message",
+			messageType: "success",
+			message: "Sikeres válasz hozzáadás!",
+		} satisfies ServerResponse);
+	} catch (error) {
+		handleDatabaseError(res, error);
+	} finally {
+		await postgres.end();
+	}
+});
