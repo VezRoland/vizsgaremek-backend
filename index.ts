@@ -2,6 +2,7 @@ import express from "express"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import postgres from "./lib/postgres"
+import ticketRouter from "./routes/ticket.ts"
 import { getUserFromCookie } from "./lib/utils"
 import { object, string, z } from "zod"
 
@@ -16,6 +17,8 @@ const app = express()
 app.use(cors({ credentials: true, origin: ORIGIN }))
 app.use(express.json())
 app.use(cookieParser())
+
+app.use("/ticket", ticketRouter)
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 	console.error(err.stack)
