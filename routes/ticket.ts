@@ -66,7 +66,11 @@ const fetchTicketDetails = async (ticketId: number, user: any) => {
 
 // Create new ticket
 router.post("/ticket", getUserFromCookie, async (req: Request, res: Response) => {
-	const schema = object({ title: string().min(3), content: string().min(10) })
+	const schema = object({
+		title: string().min(3),
+		content: string().min(10),
+		company_id: string().nullable() // Allow null for tickets without a company
+	})
 	const user = req.user as User
 
 	if (!validateUser(user, res)) return
@@ -74,7 +78,7 @@ router.post("/ticket", getUserFromCookie, async (req: Request, res: Response) =>
 	const data = validateRequestBody(schema, req.body, res)
 	if (!data) return
 
-	const { title, content } = data
+	const { title, content, company_id } = data
 
 	// Check if the user has permission to create a ticket
 	if (!hasPermission(user, "tickets", "create")) {
@@ -87,11 +91,22 @@ router.post("/ticket", getUserFromCookie, async (req: Request, res: Response) =>
 		return
 	}
 
+	// Validate company_id based on the user's role
+	if (company_id !== null && user.user_metadata.company_id !== company_id) {
+		res.status(403).json({
+			error: true,
+			type: "message",
+			messageType: "error",
+			message: "Csak a saját cégéhez vagy adminisztrátorokhoz lehet hibajegyet létrehozni!"
+		} satisfies ServerResponse)
+		return
+	}
+
 	try {
 		await postgres.connect()
 		const result = await postgres.query(
-			"INSERT INTO ticket (title, content, user_id) VALUES ($1, $2, $3)",
-			[title, content, user.id]
+			"INSERT INTO ticket (title, content, user_id, company_id) VALUES ($1, $2, $3, $4)",
+			[title, content, user.id, company_id]
 		)
 		res.status(201).json({
 			error: false,

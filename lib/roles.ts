@@ -33,7 +33,7 @@ const ROLES = {
 	owner: {
 		tickets: {
 			view: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Owners can view their own or their company's tickets
-			create: true, // Owners can create tickets
+			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Owners can create tickets in their company or towards administrators
 			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can delete their company's tickets
 			close: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can close their company's tickets
 			respond: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Owners can respond to their own or their company's tickets
@@ -42,7 +42,7 @@ const ROLES = {
 	leader: {
 		tickets: {
 			view: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Leaders can view their own or their company's tickets
-			create: true, // Leaders can create tickets
+			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Leaders can create in their company or towards administrators
 			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can delete their company's tickets
 			close: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can close their company's tickets
 			respond: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Leaders can respond to their own or their company's tickets
@@ -51,7 +51,7 @@ const ROLES = {
 	employee: {
 		tickets: {
 			view: (user, data) => user.id === data.userId, // Employees can only view their own tickets
-			create: true, // Employees can create tickets
+			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Employees can create tickets in their company or towards administrators
 			delete: false, // Employees cannot delete tickets
 			close: false, // Employees cannot close tickets
 			respond: (user, data) => user.id === data.userId, // Employees can only respond to their own tickets
