@@ -76,14 +76,15 @@ app.post("/company", async (req: Request, res, next) => {
 		} satisfies ApiResponse)
 	} else {
 		try {
-			await postgres.query(
-				"INSERT INTO company (name, code) VALUES ($1::text, $2::text)",
+			const result = await postgres.query(
+				"INSERT INTO company (name, code) VALUES ($1::text, $2::text) RETURNING *",
 				[data.name, crypto.randomUUID().substring(0, 8)]
 			)
 
 			res.status(201).json({
 				status: "success",
-				message: "The company was successfully signed up."
+				message: "The company was successfully signed up.",
+        data: result.rows[0]
 			} satisfies ApiResponse)
 		} catch (error) {
 			next(error)
