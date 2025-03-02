@@ -40,7 +40,7 @@ const fetchTicketDetails = async (ticketId: string, user: any) => {
 }
 
 // Shared function to fetch ticket responses
-const fetchTicketResponses = async (ticketId: string, user: User) => {
+const fetchTicketResponses = async (ticketId: string) => {
 	const responsesQuery = `
       SELECT tr.*, u.name
       FROM ticket_response tr
@@ -86,7 +86,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 	try {
 		await postgres.connect()
-		const result = await postgres.query(
+		await postgres.query(
 			"INSERT INTO ticket (title, content, user_id, company_id) VALUES ($1, $2, $3, $4)",
 			[title, content, user.id, company_id]
 		)
@@ -161,7 +161,6 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const { id } = req.params
-	const { include_responses } = req.query
 
 	try {
 		await postgres.connect()
@@ -177,7 +176,7 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 
 		let responses = []
 		if (Object.hasOwn(req.query, "include_responses")) {
-			responses = await fetchTicketResponses(id, user)
+			responses = await fetchTicketResponses(id)
 		}
 
 		res.json({
@@ -278,8 +277,7 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 		}
 
 		const responseQuery = "INSERT INTO ticket_response (content, ticket_id, user_id) VALUES ($1, $2, $3) RETURNING *"
-		const responseResult = await postgres.query(responseQuery, [content, ticketId, user.id])
-
+		await postgres.query(responseQuery, [content, ticketId, user.id])
 		res.status(201).json({
 			status: "success",
 			message: "Response added successfully!"
@@ -308,7 +306,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 			return
 		}
 
-		const responses = await fetchTicketResponses(ticketId, user)
+		const responses = await fetchTicketResponses(ticketId)
 
 		res.json({
 			status: "success",
