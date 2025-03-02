@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js"
-import type { Ticket, UserRole } from "../types/database"
+import { UserRole, type Ticket } from "../types/database"
 
 type PermissionCheck<Key extends keyof Permissions> =
 	| boolean
@@ -21,7 +21,7 @@ type Permissions = {
 }
 
 const ROLES = {
-	admin: {
+	[UserRole.Admin]: {
 		tickets: {
 			view: (_, data) => data.companyId === null, // Admins can only view tickets without a company
 			create: false, // Admins cannot create tickets
@@ -30,7 +30,7 @@ const ROLES = {
 			respond: (_, data) => data.companyId === null, // Admins can only respond to tickets without a company
 		}
 	},
-	owner: {
+	[UserRole.Owner]: {
 		tickets: {
 			view: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Owners can view their own or their company's tickets
 			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Owners can create tickets in their company or towards administrators
@@ -39,7 +39,7 @@ const ROLES = {
 			respond: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Owners can respond to their own or their company's tickets
 		}
 	},
-	leader: {
+	[UserRole.Leader]: {
 		tickets: {
 			view: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Leaders can view their own or their company's tickets
 			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Leaders can create in their company or towards administrators
@@ -48,7 +48,7 @@ const ROLES = {
 			respond: (user, data) => user.id === data.userId || user.user_metadata.company_id === data.companyId, // Leaders can respond to their own or their company's tickets
 		}
 	},
-	employee: {
+	[UserRole.Employee]: {
 		tickets: {
 			view: (user, data) => user.id === data.userId, // Employees can only view their own tickets
 			create: (user, data) => user.user_metadata.company_id === data.companyId || data.companyId === null, // Employees can create tickets in their company or towards administrators

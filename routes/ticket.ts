@@ -6,6 +6,7 @@ import type { ServerResponse } from "../lib/types/response"
 import { hasPermission } from "../lib/roles"
 import type { User } from "@supabase/supabase-js"
 import type { ApiResponse } from "../types/response.ts"
+import { UserRole } from "../types/database.ts"
 
 const router = Router()
 
@@ -128,15 +129,15 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 
 		// Add role-specific filters to the query
 		switch (user.user_metadata.role) {
-			case "admin":
+			case UserRole.Admin:
 				query += " WHERE company_id IS NULL" // Admins can only view tickets without a company
 				break
-			case "owner":
-			case "leader":
+			case UserRole.Owner:
+			case UserRole.Leader:
 				query += " WHERE user_id = $1 OR company_id = $2" // Owners and leaders can view their own or their company's tickets
 				params.push(user.id, user.user_metadata.company_id)
 				break
-			case "employee":
+			case UserRole.Employee:
 				query += " WHERE user_id = $1" // Employees can only view their own tickets
 				params.push(user.id)
 				break
