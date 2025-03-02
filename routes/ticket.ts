@@ -6,6 +6,7 @@ import type { ServerResponse } from "../lib/types/response"
 import { hasPermission } from "../lib/roles"
 import type { User } from "@supabase/supabase-js"
 import type { ApiResponse } from "../types/response.ts"
+import { UserRole } from "../types/database.ts"
 
 const router = Router()
 
@@ -35,7 +36,7 @@ const validateRequestBody = (schema: any, body: any, res: Response): any | null 
 }
 
 // Utility function to fetch ticket details
-const fetchTicketDetails = async (ticketId: number, user: any) => {
+const fetchTicketDetails = async (ticketId: string, user: any) => {
 	const ticketQuery = "SELECT * FROM ticket WHERE id = $1"
 	const ticketResult = await postgres.query(ticketQuery, [ticketId])
 	const ticket = ticketResult.rows[0]
@@ -51,7 +52,7 @@ const fetchTicketDetails = async (ticketId: number, user: any) => {
 }
 
 // Shared function to fetch ticket responses
-const fetchTicketResponses = async (ticketId: number, user: User) => {
+const fetchTicketResponses = async (ticketId: string, user: User) => {
 	const responsesQuery = `
         SELECT tr.*, u.name
         FROM ticket_response tr
@@ -98,7 +99,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 	}
 
 	try {
-		await postgres.connect()
 		const result = await postgres.query(
 			"INSERT INTO ticket (title, content, user_id, company_id) VALUES ($1, $2, $3, $4)",
 			[title, content, user.id, company_id]
@@ -109,8 +109,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -121,22 +119,21 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 	if (!validateUser(user, res)) return
 
 	try {
-		await postgres.connect()
 
 		let query = "SELECT * FROM ticket"
 		const params: any[] = []
 
 		// Add role-specific filters to the query
-		switch (user.user_metadata.role) {
-			case "admin":
+		switch (Number(user.user_metadata.role)) {
+			case UserRole.Admin:
 				query += " WHERE company_id IS NULL" // Admins can only view tickets without a company
 				break
-			case "owner":
-			case "leader":
+			case UserRole.Owner:
+			case UserRole.Leader:
 				query += " WHERE user_id = $1 OR company_id = $2" // Owners and leaders can view their own or their company's tickets
 				params.push(user.id, user.user_metadata.company_id)
 				break
-			case "employee":
+			case UserRole.Employee:
 				query += " WHERE user_id = $1" // Employees can only view their own tickets
 				params.push(user.id)
 				break
@@ -167,8 +164,6 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -181,8 +176,7 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 	if (!validateUser(user, res)) return
 
 	try {
-		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(id), user)
+		const ticket = await fetchTicketDetails(id, user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -193,8 +187,8 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 		}
 
 		let responses = []
-		if (include_responses) {
-			responses = await fetchTicketResponses(Number(id), user)
+		if (Object.hasOwn(req.query, "include_responses")) {
+			responses = await fetchTicketResponses(id, user)
 		}
 
 		res.json({
@@ -202,13 +196,11 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 			message: "Ticket fetched successfully!",
 			data: {
 				...ticket,
-				responses: include_responses === "true" ? responses : []
+				...(Object.hasOwn(req.query, "include_responses") ? { responses } : {})
 			}
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -220,8 +212,7 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 	if (!validateUser(user, res)) return
 
 	try {
-		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(id), user)
+		const ticket = await fetchTicketDetails(id, user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -259,8 +250,6 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -278,8 +267,7 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 	const { content } = data
 
 	try {
-		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(ticketId), user)
+		const ticket = await fetchTicketDetails(ticketId, user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -307,8 +295,6 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -320,8 +306,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 	if (!validateUser(user, res)) return
 
 	try {
-		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(ticketId), user)
+		const ticket = await fetchTicketDetails(ticketId, user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -331,7 +316,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 			return
 		}
 
-		const responses = await fetchTicketResponses(Number(ticketId), user)
+		const responses = await fetchTicketResponses(ticketId, user)
 
 		res.json({
 			status: "success",
@@ -340,8 +325,6 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
