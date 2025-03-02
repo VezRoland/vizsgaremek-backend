@@ -6,6 +6,7 @@ import type { ServerResponse } from "../lib/types/response"
 import { hasPermission } from "../lib/roles"
 import type { User } from "@supabase/supabase-js"
 import type { ApiResponse } from "../types/response.ts"
+import { UserRole } from "../types/database.ts"
 
 const router = Router()
 
@@ -111,16 +112,16 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 		const params: any[] = []
 
 		// Add role-specific filters to the query
-		switch (user.user_metadata.role) {
-			case "admin":
+		switch (Number(user.user_metadata.role)) {
+			case UserRole.Admin:
 				query += " WHERE company_id IS NULL" // Admins can only view tickets without a company
 				break
-			case "owner":
-			case "leader":
+			case UserRole.Owner:
+			case UserRole.Leader:
 				query += " WHERE user_id = $1 OR company_id = $2" // Owners and leaders can view their own or their company's tickets
 				params.push(user.id, user.user_metadata.company_id)
 				break
-			case "employee":
+			case UserRole.Employee:
 				query += " WHERE user_id = $1" // Employees can only view their own tickets
 				params.push(user.id)
 				break
@@ -175,8 +176,8 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 		}
 
 		let responses = []
-		if (include_responses) {
-			responses = await fetchTicketResponses(String(id), user)
+		if (Object.hasOwn(req.query, "include_responses")) {
+			responses = await fetchTicketResponses(id, user)
 		}
 
 		res.json({
@@ -184,7 +185,7 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 			message: "Ticket fetched successfully!",
 			data: {
 				...ticket,
-				responses: include_responses === "true" ? responses : []
+				...(Object.hasOwn(req.query, "include_responses") ? { responses } : {})
 			}
 		} satisfies ApiResponse)
 	} catch (error) {
@@ -307,7 +308,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 			return
 		}
 
-		const responses = await fetchTicketResponses(String(ticketId), user)
+		const responses = await fetchTicketResponses(ticketId, user)
 
 		res.json({
 			status: "success",
