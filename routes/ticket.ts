@@ -9,25 +9,13 @@ import type { ApiResponse } from "../types/response.ts"
 
 const router = Router()
 
-// Utility function to validate user authentication
-const validateUser = (user: any, res: Response): boolean => {
-	if (!user) {
-		res.status(401).json({
-			status: "error",
-			message: "You are not logged in. Sign into your account!"
-		} satisfies ApiResponse)
-		return false
-	}
-	return true
-}
-
 // Utility function to validate request body
 const validateRequestBody = (schema: any, body: any, res: Response): any | null => {
 	const validation = schema.safeParse(body)
 	if (!validation.success) {
 		res.status(400).json({
 			status: "error",
-			message: "Invalid data! Please check the fields.",
+			message: "Invalid data! Please check the fields."
 		} satisfies ApiResponse)
 		return null
 	}
@@ -35,7 +23,7 @@ const validateRequestBody = (schema: any, body: any, res: Response): any | null 
 }
 
 // Utility function to fetch ticket details
-const fetchTicketDetails = async (ticketId: number, user: any) => {
+const fetchTicketDetails = async (ticketId: string, user: any) => {
 	const ticketQuery = "SELECT * FROM ticket WHERE id = $1"
 	const ticketResult = await postgres.query(ticketQuery, [ticketId])
 	const ticket = ticketResult.rows[0]
@@ -51,13 +39,13 @@ const fetchTicketDetails = async (ticketId: number, user: any) => {
 }
 
 // Shared function to fetch ticket responses
-const fetchTicketResponses = async (ticketId: number, user: User) => {
+const fetchTicketResponses = async (ticketId: string, user: User) => {
 	const responsesQuery = `
-        SELECT tr.*, u.name
-        FROM ticket_response tr
-                 JOIN "user" u ON tr.user_id = u.id
-        WHERE tr.ticket_id = $1
-        ORDER BY tr.created_at
+      SELECT tr.*, u.name
+      FROM ticket_response tr
+               JOIN "user" u ON tr.user_id = u.id
+      WHERE tr.ticket_id = $1
+      ORDER BY tr.created_at
 	`
 	const responsesResult = await postgres.query(responsesQuery, [ticketId])
 	return responsesResult.rows
@@ -71,8 +59,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		company_id: string().nullable() // Allow null for tickets without a company
 	})
 	const user = req.user as User
-
-	if (!validateUser(user, res)) return
 
 	const data = validateRequestBody(schema, req.body, res)
 	if (!data) return
@@ -118,8 +104,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 
-	if (!validateUser(user, res)) return
-
 	try {
 		await postgres.connect()
 
@@ -145,7 +129,7 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 					error: true,
 					type: "message",
 					messageType: "error",
-					message: "Nincs jogosultsága a hibajegyek megtekintéséhez!",
+					message: "You don't have permission to view the tickets!"
 				} satisfies ServerResponse)
 				return
 		}
@@ -178,11 +162,9 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 	const { id } = req.params
 	const { include_responses } = req.query
 
-	if (!validateUser(user, res)) return
-
 	try {
 		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(id), user)
+		const ticket = await fetchTicketDetails(String(id), user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -194,7 +176,7 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 
 		let responses = []
 		if (include_responses) {
-			responses = await fetchTicketResponses(Number(id), user)
+			responses = await fetchTicketResponses(String(id), user)
 		}
 
 		res.json({
@@ -217,11 +199,9 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 	const user = req.user as User
 	const { id } = req.params
 
-	if (!validateUser(user, res)) return
-
 	try {
 		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(id), user)
+		const ticket = await fetchTicketDetails(String(id), user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -270,8 +250,6 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 	const user = req.user as User
 	const { id: ticketId } = req.params
 
-	if (!validateUser(user, res)) return
-
 	const data = validateRequestBody(schema, req.body, res)
 	if (!data) return
 
@@ -279,7 +257,7 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 
 	try {
 		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(ticketId), user)
+		const ticket = await fetchTicketDetails(String(ticketId), user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -317,11 +295,9 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 	const user = req.user as User
 	const { id: ticketId } = req.params
 
-	if (!validateUser(user, res)) return
-
 	try {
 		await postgres.connect()
-		const ticket = await fetchTicketDetails(Number(ticketId), user)
+		const ticket = await fetchTicketDetails(String(ticketId), user)
 
 		if (!ticket) {
 			res.status(404).json({
@@ -331,7 +307,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 			return
 		}
 
-		const responses = await fetchTicketResponses(Number(ticketId), user)
+		const responses = await fetchTicketResponses(String(ticketId), user)
 
 		res.json({
 			status: "success",
@@ -345,4 +321,4 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 	}
 })
 
-export default router;
+export default router
