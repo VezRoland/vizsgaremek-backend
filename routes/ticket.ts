@@ -67,7 +67,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 	const { title, content, company_id } = data
 
 	// Check if the user has permission to create a ticket
-	if (!hasPermission(user, "tickets", "create")) {
+	if (!hasPermission(user, "tickets", "create", data)) {
 		res.status(403).json({
 			status: "error",
 			message: "You are not authorized to create a ticket!"
@@ -85,7 +85,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 	}
 
 	try {
-		await postgres.connect()
 		await postgres.query(
 			"INSERT INTO ticket (title, content, user_id, company_id) VALUES ($1, $2, $3, $4)",
 			[title, content, user.id, company_id]
@@ -96,8 +95,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -106,8 +103,6 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 	const user = req.user as User
 
 	try {
-		await postgres.connect()
-
 		let query = "SELECT * FROM ticket"
 		const params: any[] = []
 
@@ -152,8 +147,6 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -163,7 +156,6 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 	const { id } = req.params
 
 	try {
-		await postgres.connect()
 		const ticket = await fetchTicketDetails(String(id), user)
 
 		if (!ticket) {
@@ -189,8 +181,6 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -200,7 +190,6 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 	const { id } = req.params
 
 	try {
-		await postgres.connect()
 		const ticket = await fetchTicketDetails(String(id), user)
 
 		if (!ticket) {
@@ -239,8 +228,6 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -256,7 +243,6 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 	const { content } = data
 
 	try {
-		await postgres.connect()
 		const ticket = await fetchTicketDetails(String(ticketId), user)
 
 		if (!ticket) {
@@ -284,8 +270,6 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
@@ -295,7 +279,6 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 	const { id: ticketId } = req.params
 
 	try {
-		await postgres.connect()
 		const ticket = await fetchTicketDetails(String(ticketId), user)
 
 		if (!ticket) {
@@ -315,8 +298,6 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
-	} finally {
-		await postgres.end()
 	}
 })
 
