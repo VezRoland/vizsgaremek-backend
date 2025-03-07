@@ -239,8 +239,8 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
         SELECT s.*, u.name--, u.avatar_url
         FROM schedule s
                  JOIN "user" u ON s.user_id = u.id
-        WHERE s.start >= $1
-          AND s.end <= $2
+        WHERE s.start <= $1
+          AND $2 <= s.end 
 		`
 
 		let queryParams: any[] = [startOfDay, endOfDay]
