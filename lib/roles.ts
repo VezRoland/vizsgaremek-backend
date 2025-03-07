@@ -19,7 +19,7 @@ type Permissions = {
 		action: "view" | "create" | "delete" | "close" | "respond"
 	},
 	schedule:  {
-		dataType: Schedule,
+		dataType: Pick<Schedule, "user_id" | "company_id">,
 		action: "view" | "create" | "finalize"
 	}
 }

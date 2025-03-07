@@ -3,6 +3,7 @@ import postgres from "../lib/postgres"
 import { getUserFromCookie } from "../lib/utils"
 import type { ApiResponse } from "../types/response.ts"
 import type { User } from "@supabase/supabase-js"
+import { hasPermission } from "../lib/roles" // Import the hasPermission function
 
 const router = Router()
 
@@ -28,28 +29,32 @@ const getEndOfWeek = (date: Date): Date => {
 // Utility function to check if there are schedules in a given week
 const hasSchedulesInWeek = async (startOfWeek: Date, endOfWeek: Date): Promise<boolean> => {
 	const query = `
-      SELECT EXISTS(
-          SELECT 1
-          FROM schedule
-          WHERE schedule.start >= $1
-            AND schedule.end <= $2
-      )
+      SELECT EXISTS(SELECT 1
+                    FROM schedule
+                    WHERE schedule.start >= $1
+                      AND schedule.end <= $2)
 	`
 	const result = await postgres.query(query, [startOfWeek, endOfWeek])
 	return result.rows[0].exists
 }
 
 // Utility function to fetch schedules for a given week
-const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date) => {
+const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User) => {
 	const schedulesQuery = `
       SELECT s.*, u.name--, u.avatar_url
       FROM schedule s
                JOIN "user" u ON s.user_id = u.id
       WHERE s.start >= $1
         AND s.end <= $2
+        AND (s.company_id = $3 OR s.user_id = $4) -- Filter by company_id or user_id
       ORDER BY s.start
 	`
-	const schedulesResult = await postgres.query(schedulesQuery, [startOfWeek, endOfWeek])
+	const schedulesResult = await postgres.query(schedulesQuery, [
+		startOfWeek,
+		endOfWeek,
+		user.user_metadata.company_id,
+		user.id
+	])
 	return schedulesResult.rows
 }
 
@@ -76,12 +81,21 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 	const user = req.user as User
 
 	try {
+		// Check if the user has permission to view schedules
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+			res.status(403).json({
+				status: "error",
+				message: "You do not have permission to view schedules."
+			} satisfies ApiResponse)
+			return
+		}
+
 		const now = new Date()
 		const startOfCurrentWeek = getStartOfWeek(now)
 		const endOfCurrentWeek = getEndOfWeek(now)
 
 		// Fetch schedules for the current week
-		const schedules = await fetchSchedulesForWeek(startOfCurrentWeek, endOfCurrentWeek)
+		const schedules = await fetchSchedulesForWeek(startOfCurrentWeek, endOfCurrentWeek, user)
 
 		// Check for schedules in the previous and next weeks
 		const startOfPrevWeek = new Date(startOfCurrentWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -119,11 +133,20 @@ router.get("/:weekStart", getUserFromCookie, async (req: Request, res: Response,
 	}
 
 	try {
+		// Check if the user has permission to view schedules
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+			res.status(403).json({
+				status: "error",
+				message: "You do not have permission to view schedules."
+			} satisfies ApiResponse)
+			return
+		}
+
 		const startOfSpecifiedWeek = new Date(weekStartMillis)
 		const endOfSpecifiedWeek = getEndOfWeek(startOfSpecifiedWeek)
 
 		// Fetch schedules for the specified week
-		const schedules = await fetchSchedulesForWeek(startOfSpecifiedWeek, endOfSpecifiedWeek)
+		const schedules = await fetchSchedulesForWeek(startOfSpecifiedWeek, endOfSpecifiedWeek, user)
 
 		// Check for schedules in the previous and next weeks
 		const startOfPrevWeek = new Date(startOfSpecifiedWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
