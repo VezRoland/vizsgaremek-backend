@@ -191,7 +191,7 @@ router.get("/:weekStart", getUserFromCookie, async (req: Request, res: Response,
 })
 
 // GET /schedule/:hour-day (detailed schedules for a specific hour and day)
-router.get("/:hour-day", getUserFromCookie, async (req: Request, res: Response, next) => {
+router.get("/details/:hour-day", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
