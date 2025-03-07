@@ -3,7 +3,8 @@ import postgres from "../lib/postgres"
 import { getUserFromCookie } from "../lib/utils"
 import type { ApiResponse } from "../types/response.ts"
 import type { User } from "@supabase/supabase-js"
-import { hasPermission } from "../lib/roles" // Import the hasPermission function
+import { hasPermission } from "../lib/roles"
+import { UserRole } from "../types/database.ts" // Import the hasPermission function
 
 const router = Router()
 
@@ -38,17 +39,33 @@ const hasSchedulesInWeek = async (startOfWeek: Date, endOfWeek: Date): Promise<b
 	return result.rows[0].exists
 }
 
-// Utility function to fetch schedules for a given week
 const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User) => {
-	const schedulesQuery = `
+	let schedulesQuery = `
       SELECT s.*, u.name--, u.avatar_url
       FROM schedule s
                JOIN "user" u ON s.user_id = u.id
       WHERE s.start >= $1
         AND s.end <= $2
-        AND (s.company_id = $3 OR s.user_id = $4) -- Filter by company_id or user_id
-      ORDER BY s.start
 	`
+
+	// Add role-specific filters
+	switch (user.user_metadata.role) {
+		case UserRole.Owner:
+		case UserRole.Leader:
+			// Owners and Leaders can view schedules for their company or their own schedules
+			schedulesQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
+			break
+		case UserRole.Employee:
+			// Employees can only view their own schedules
+			schedulesQuery += " AND s.user_id = $4"
+			break
+		default:
+			// No permissions + Admin
+			return []
+	}
+
+	schedulesQuery += " ORDER BY s.start"
+
 	const schedulesResult = await postgres.query(schedulesQuery, [
 		startOfWeek,
 		endOfWeek,
@@ -60,19 +77,23 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 
 // Utility function to format the response
 const formatScheduleResponse = (startOfWeek: Date, schedules: any[], hasPrevWeekSchedules: boolean, hasNextWeekSchedules: boolean) => {
+	// Group schedules by hour and day
+	const scheduleCounts: Record<string, number> = {}
+	schedules.forEach(schedule => {
+		const start = new Date(schedule.start)
+		const hour = start.getUTCHours() // Use UTC hours
+		const day = start.getUTCDay() // 0 (Sunday) to 6 (Saturday)
+		const key = `${hour}-${day}`
+
+		if (!scheduleCounts[key]) scheduleCounts[key] = 0
+		scheduleCounts[key]++
+	})
+
 	return {
-		[`${startOfWeek.getMonth() + 1}-${startOfWeek.getDate()}`]: schedules.map(schedule => ({
-			id: schedule.id,
-			category: schedule.category,
-			start: schedule.start.toISOString(),
-			end: schedule.end.toISOString(),
-			user: {
-				name: schedule.name,
-				avatar_url: schedule.avatar_url
-			}
-		})),
+		week_start: startOfWeek.toISOString().split("T")[0], // Format as YYYY-MM-DD
 		prevDate: hasPrevWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000)).getTime() : null,
-		nextDate: hasNextWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)).getTime() : null
+		nextDate: hasNextWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)).getTime() : null,
+		schedule: scheduleCounts
 	}
 }
 
@@ -164,6 +185,115 @@ router.get("/:weekStart", getUserFromCookie, async (req: Request, res: Response,
 			status: "success",
 			message: "Schedules fetched successfully!",
 			data
+		} satisfies ApiResponse)
+	} catch (error) {
+		next(error)
+	}
+})
+
+// GET /schedule/:hour-day (detailed schedules for a specific hour and day)
+router.get("/:hour-day", getUserFromCookie, async (req: Request, res: Response, next) => {
+	const user = req.user as User
+	const { hourDay } = req.params
+	const [hour, day] = hourDay.split("-").map(Number)
+
+	// Validate hour and day
+	if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(day) || day < 0 || day > 6) {
+		res.status(400).json({
+			status: "error",
+			message: "Invalid hour or day parameter. Hour must be between 0 and 23, and day must be between 0 and 6."
+		} satisfies ApiResponse)
+		return
+	}
+
+	// Parse week_start query parameter
+	let startOfWeek: Date
+	if (req.query.week_start) {
+		// Use the provided week_start
+		startOfWeek = new Date(req.query.week_start as string)
+		if (isNaN(startOfWeek.getTime())) {
+			res.status(400).json({
+				status: "error",
+				message: "Invalid week_start parameter. It must be a valid date in the format YYYY-MM-DD."
+			} satisfies ApiResponse)
+			return
+		}
+	} else {
+		// Use the current week
+		startOfWeek = getStartOfWeek(new Date())
+	}
+
+	// Pagination parameters
+	const limit = req.query.limit ? Number(req.query.limit) : 20
+	const page = req.query.page ? Number(req.query.page) : 1
+	const offset = (page - 1) * limit
+
+	try {
+		// Calculate the start and end of the specified hour and day
+		const startOfDay = new Date(startOfWeek)
+		startOfDay.setDate(startOfWeek.getDate() + day)
+		startOfDay.setUTCHours(hour, 0, 0, 0) // Start of the hour
+		const endOfDay = new Date(startOfDay)
+		endOfDay.setUTCHours(hour, 59, 59, 999) // End of the hour
+
+		let schedulesQuery = `
+          SELECT s.*, u.name--, u.avatar_url
+          FROM schedule s
+                   JOIN "user" u ON s.user_id = u.id
+          WHERE s.start >= $1
+            AND s.end <= $2
+		`
+
+		// Add role-specific filters
+		switch (user.user_metadata.role) {
+			case UserRole.Admin:
+				// Admins can only view schedules without a company
+				schedulesQuery += " AND s.company_id IS NULL"
+				break
+			case UserRole.Owner:
+			case UserRole.Leader:
+				// Owners and Leaders can view schedules for their company or their own schedules
+				schedulesQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
+				break
+			case UserRole.Employee:
+				// Employees can only view their own schedules
+				schedulesQuery += " AND s.user_id = $4"
+				break
+			default:
+				// No permissions
+				res.status(403).json({
+					status: "error",
+					message: "You do not have permission to view schedules."
+				} satisfies ApiResponse)
+				return
+		}
+
+		schedulesQuery += " ORDER BY s.start LIMIT $5 OFFSET $6"
+
+		const schedulesResult = await postgres.query(schedulesQuery, [
+			startOfDay,
+			endOfDay,
+			user.user_metadata.company_id,
+			user.id,
+			limit,
+			offset
+		])
+		const schedules = schedulesResult.rows
+
+		// Format the response
+		res.json({
+			status: "success",
+			message: "Schedules fetched successfully!",
+			data: schedules.map(schedule => ({
+				id: schedule.id,
+				category: schedule.category,
+				start: schedule.start.toISOString(),
+				end: schedule.end.toISOString(),
+				user: {
+					name: schedule.name,
+					avatar_url: schedule.avatar_url
+				}
+			}))
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
