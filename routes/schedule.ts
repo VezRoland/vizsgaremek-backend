@@ -4,7 +4,9 @@ import { getUserFromCookie } from "../lib/utils"
 import type { ApiResponse } from "../types/response.ts"
 import type { User } from "@supabase/supabase-js"
 import { hasPermission } from "../lib/roles"
-import { UserRole } from "../types/database.ts" // Import the hasPermission function
+import { UserRole } from "../types/database.ts"
+import { object, string, number } from "zod"
+
 
 const router = Router()
 
@@ -126,7 +128,6 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 		const endOfNextWeek = new Date(startOfNextWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
 		const hasNextWeekSchedules = await hasSchedulesInWeek(startOfNextWeek, endOfNextWeek)
 
-		// Format the response
 		const data = formatScheduleResponse(startOfCurrentWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
 
 		res.json({
@@ -177,7 +178,6 @@ router.get("/:weekStart", getUserFromCookie, async (req: Request, res: Response,
 		const endOfNextWeek = new Date(startOfNextWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
 		const hasNextWeekSchedules = await hasSchedulesInWeek(startOfNextWeek, endOfNextWeek)
 
-		// Format the response
 		const data = formatScheduleResponse(startOfSpecifiedWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
 
 		res.json({
@@ -273,7 +273,6 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		const schedulesResult = await postgres.query(schedulesQuery, queryParams)
 		const schedules = schedulesResult.rows
 
-		// Format the response
 		res.json({
 			status: "success",
 			message: "Schedules fetched successfully!",
@@ -287,6 +286,73 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 					avatar_url: schedule.avatar_url
 				}
 			}))
+		} satisfies ApiResponse)
+	} catch (error) {
+		next(error)
+	}
+})
+
+// Schema for validating the request body
+const createScheduleSchema = object({
+	start: string().datetime(),
+	end: string().datetime(),
+	category: number().min(1).max(2), // 1 = Paid, 2 = Unpaid
+	company_id: string(),
+	user_id: string().array()
+})
+
+// POST /schedule (create a new schedule)
+router.post("/", getUserFromCookie, async (req: Request, res: Response, next) => {
+	const user = req.user as User
+
+	try {
+		// Validate the request body
+		const validation = createScheduleSchema.safeParse(req.body)
+		if (!validation.success) {
+			res.status(400).json({
+				status: "error",
+				message: "Invalid data! Please check the fields.",
+				errors: validation.error.errors
+			} satisfies ApiResponse)
+			return
+		}
+
+		const { start, end, category, company_id } = validation.data
+
+		// Check if the user has permission to create schedules
+		if (!hasPermission(user, "schedule", "create", { user_id: user.id, company_id })) {
+			res.status(403).json({
+				status: "error",
+				message: "You do not have permission to create schedules."
+			} satisfies ApiResponse)
+			return
+		}
+
+		// Validate company_id based on the user's role
+		if (user.user_metadata.company_id !== company_id) {
+			res.status(403).json({
+				status: "error",
+				message: "You are not authorized to create schedules for this company!"
+			} satisfies ApiResponse)
+			return
+		}
+
+		// Insert the new schedule into the database
+		const insertQuery = `
+          INSERT INTO schedule (start, "end", category, user_id, company_id)
+          VALUES ($1, $2, $3, $4, $5)
+		`
+		await postgres.query(insertQuery, [
+			new Date(start).toISOString(),
+			new Date(end).toISOString(),
+			category,
+			user.id,
+			company_id
+		])
+
+		res.status(201).json({
+			status: "success",
+			message: "Schedule created successfully!"
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
