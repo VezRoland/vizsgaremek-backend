@@ -298,12 +298,12 @@ const createScheduleSchema = object({
 	end: string().datetime(),
 	category: number().min(1).max(2), // 1 = Paid, 2 = Unpaid
 	company_id: string(),
-	user_id: string().array()
+	user_id: string().array().nonempty()
 })
 
 // POST /schedule (create a new schedule)
 router.post("/", getUserFromCookie, async (req: Request, res: Response, next) => {
-	const user = req.user as User
+	const creator = req.user as User
 
 	try {
 		// Validate the request body
@@ -317,10 +317,10 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		const { start, end, category, company_id } = validation.data
+		const { start, end, category, company_id, user_id } = validation.data
 
-		// Check if the user has permission to create schedules
-		if (!hasPermission(user, "schedule", "create", { user_id: user.id, company_id })) {
+		// Check if the creator has permission to create schedules
+		if (!hasPermission(creator, "schedule", "create", { user_id: creator.id, company_id })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to create schedules."
@@ -328,8 +328,8 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		// Validate company_id based on the user's role
-		if (user.user_metadata.company_id !== company_id) {
+		// Validate company_id based on the creator's role
+		if (creator.user_metadata.company_id !== company_id) {
 			res.status(403).json({
 				status: "error",
 				message: "You are not authorized to create schedules for this company!"
@@ -337,50 +337,142 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		// Check for overlapping schedules
-		const overlapQuery = `
-        SELECT EXISTS(SELECT 1
-                      FROM schedule
-                      WHERE user_id = $1
-                        AND (
-                          (start <= $2 AND $3 <= "end") OR
-                          (start <= $4 AND $5 <= "end") OR
-                          ($2 <= start AND "end" <= $4)
-                          ))
-		`
-		const overlapResult = await postgres.query(overlapQuery, [
-			user.id,
-			new Date(start).toISOString(),
-			new Date(start).toISOString(),
-			new Date(end).toISOString(),
-			new Date(end).toISOString()
-		])
+		// Array to store errors for individual users
+		const errors: Array<{ user_id: string; message: string; code: number }> = []
 
-		if (overlapResult.rows[0].exists) {
-			res.status(400).json({
-				status: "error",
-				message: "A schedule already exists for this user in the specified timeframe."
-			} satisfies ApiResponse)
-			return
+		// Process each user in the user_id array
+		for (const userId of user_id) {
+			try {
+				// Check for overlapping schedules for the subject user
+				const overlapQuery = `
+            SELECT EXISTS(SELECT 1
+                          FROM schedule
+                          WHERE user_id = $1
+                            AND (
+                              (start <= $2 AND $3 <= "end") OR
+                              (start <= $4 AND $5 <= "end") OR
+                              ($2 <= start AND "end" <= $4)
+                              ))
+				`
+				const overlapResult = await postgres.query(overlapQuery, [
+					userId,
+					new Date(start).toISOString(),
+					new Date(start).toISOString(),
+					new Date(end).toISOString(),
+					new Date(end).toISOString()
+				])
+
+				if (overlapResult.rows[0].exists) {
+					throw {
+						message: "A schedule already exists for this user in the specified timeframe.",
+						code: 400
+					}
+				}
+
+				// Fetch the subject user's age
+				const userQuery = `
+                  SELECT age
+                  FROM "user"
+                  WHERE id = $1
+				`
+				const userResult = await postgres.query(userQuery, [userId])
+				const userAge = userResult.rows[0]?.age
+
+				if (userAge === undefined) {
+					throw {
+						message: "User not found.",
+						code: 404
+					}
+				}
+
+				// Fetch the last schedule for the subject user
+				const lastScheduleQuery = `
+                  SELECT "end"
+                  FROM schedule
+                  WHERE user_id = $1
+                  ORDER BY "end" DESC
+                  LIMIT 1
+				`
+				const lastScheduleResult = await postgres.query(lastScheduleQuery, [userId])
+				const lastScheduleEnd = lastScheduleResult.rows[0]?.end
+
+				// Calculate the duration of the new schedule in hours
+				const scheduleDuration = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60)
+
+				// Check age-based constraints
+				if (userAge >= 18) {
+					// Employees aged 18 or more
+					if (scheduleDuration > 12) {
+						throw {
+							message: "Employees aged 18 or more cannot work more than 12 hours.",
+							code: 400
+						}
+					}
+
+					if (lastScheduleEnd) {
+						const timeSinceLastSchedule = (new Date(start).getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
+						if (timeSinceLastSchedule < 8) {
+							throw {
+								message: "A new schedule cannot be created less than 8 hours after the last one's end.",
+								code: 400
+							}
+						}
+					}
+				} else {
+					// Employees aged less than 18
+					if (scheduleDuration > 8) {
+						throw {
+							message: "Employees aged less than 18 cannot work more than 8 hours.",
+							code: 400
+						}
+					}
+
+					if (lastScheduleEnd) {
+						const timeSinceLastSchedule = (new Date(start).getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
+						if (timeSinceLastSchedule < 12) {
+							throw {
+								message: "A new schedule cannot be created less than 12 hours after the last one's end.",
+								code: 400
+							}
+						}
+					}
+				}
+
+				// Insert the new schedule into the database
+				const insertQuery = `
+                  INSERT INTO schedule (start, "end", category, user_id, company_id)
+                  VALUES ($1, $2, $3, $4, $5)
+				`
+				await postgres.query(insertQuery, [
+					new Date(start).toISOString(),
+					new Date(end).toISOString(),
+					category,
+					userId,
+					company_id
+				])
+			} catch (error: any) {
+				// Save the error for this user
+				errors.push({
+					user_id: userId,
+					message: error.message,
+					code: error.code || 500
+				})
+			}
 		}
 
-		// Insert the new schedule into the database
-		const insertQuery = `
-        INSERT INTO schedule (start, "end", category, user_id, company_id)
-        VALUES ($1, $2, $3, $4, $5)
-		`
-		await postgres.query(insertQuery, [
-			new Date(start).toISOString(),
-			new Date(end).toISOString(),
-			category,
-			user.id,
-			company_id
-		])
-
-		res.status(201).json({
-			status: "success",
-			message: "Schedule created successfully!"
-		} satisfies ApiResponse)
+		// If there are errors, return them in the response
+		if (errors.length > 0) {
+			res.status(207).json({
+				status: "error",
+				message: "Some schedules could not be created.",
+				data: errors
+			} satisfies ApiResponse)
+		} else {
+			res.status(201).json({
+				status: "success",
+				message: "All schedules created successfully!"
+			} satisfies ApiResponse)
+		}
 	} catch (error) {
 		next(error)
 	}
@@ -408,13 +500,13 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 		// Fetch users' data with schedules
 		const usersQuery = `
-          SELECT u.id, u.name, u.avatar_url, s.start, s."end"
-          FROM "user" u
-                   LEFT JOIN schedule s ON u.id = s.user_id
-          WHERE u.name ILIKE $1
-            AND u.company_id = $2
-          ORDER BY u.name
-          LIMIT $3 OFFSET $4
+        SELECT u.id, u.name, u.avatar_url, s.start, s."end"
+        FROM "user" u
+                 LEFT JOIN schedule s ON u.id = s.user_id
+        WHERE u.name ILIKE $1
+          AND u.company_id = $2
+        ORDER BY u.name
+        LIMIT $3 OFFSET $4
 		`
 		const usersResult = await postgres.query(usersQuery, [
 			`%${name}%`, // Partial name match
