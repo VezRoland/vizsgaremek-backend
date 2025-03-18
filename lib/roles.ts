@@ -19,8 +19,8 @@ type Permissions = {
 		action: "view" | "create" | "delete" | "close" | "respond"
 	},
 	schedule:  {
-		dataType: Pick<Schedule, "user_id" | "company_id">,
-		action: "view" | "create" | "finalize"
+		dataType: Pick<Schedule, "user_id" | "company_id" | "finalized">,
+		action: "view" | "create" | "finalize" | "delete" | "update"
 	}
 }
 
@@ -37,6 +37,8 @@ const ROLES = {
 			view: false, // Admins cannot view schedules
 			create: false, // Admins cannot create schedules
 			finalize: false, // Admins cannot finalize
+			delete: false, // Admins cannot delete schedules
+			update: false, // Admins cannot update schedules
 		}
 	},
 	[UserRole.Owner]: {
@@ -51,6 +53,8 @@ const ROLES = {
 			view: (user, data) => user.user_metadata.company_id === data.company_id, // Owners can only view schedules in their company
 			create: (user, data) => user.id === data.user_id, // Owners can only create schedules for themselves
 			finalize: (user, data) => user.user_metadata.company_id === data.company_id, // Owners can only finalize schedules in their company
+			delete: (user, data) => user.user_metadata.company_id === data.company_id, // Owners can only delete schedules in their company
+			update: (user, data) => user.user_metadata.company_id === data.company_id, // Owners can only update schedules in their company
 		}
 	},
 	[UserRole.Leader]: {
@@ -65,6 +69,8 @@ const ROLES = {
 			view: (user, data) => user.user_metadata.company_id === data.company_id, // Leaders can only view schedules in their company
 			create: (user, data) => user.id === data.user_id, // Leaders can only create schedules for themselves
 			finalize: (user, data) => user.user_metadata.company_id === data.company_id, // Leaders can only finalize schedules in their company
+			delete: (user, data) => user.user_metadata.company_id === data.company_id, // Leaders can only delete schedules in their company
+			update: (user, data) => user.user_metadata.company_id === data.company_id, // Leaders can only update schedules in their company
 		}
 	},
 	[UserRole.Employee]: {
@@ -79,6 +85,8 @@ const ROLES = {
 			view: (user, data) => user.id === data.user_id, // Employees can only view their own schedules
 			create: (user, data) => user.id === data.user_id, // Employees can only create schedules for themselves
 			finalize: false, // Employees cannot finalize schedules
+			delete: (user, data) => user.id === data.user_id && !data.finalized, // Employees can only delete their own schedules
+			update: (user, data) => user.id === data.user_id && !data.finalized, // Employees can only update their own schedules
 		}
 	}
 } as const satisfies RolesWithPermissions

@@ -5,7 +5,7 @@ import type { ApiResponse } from "../types/response.ts"
 import type { User } from "@supabase/supabase-js"
 import { hasPermission } from "../lib/roles"
 import { UserRole } from "../types/database.ts"
-import { object, string, number } from "zod"
+import { object, string, number, boolean } from "zod"
 
 
 const router = Router()
@@ -104,7 +104,7 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 
 	try {
 		// Check if the user has permission to view schedules
-		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id, finalized: true })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to view schedules."
@@ -155,7 +155,7 @@ router.get("/:weekStart", getUserFromCookie, async (req: Request, res: Response,
 
 	try {
 		// Check if the user has permission to view schedules
-		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id, finalized: true })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to view schedules."
@@ -320,7 +320,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		const { start, end, category, company_id, user_id } = validation.data
 
 		// Check if the creator has permission to create schedules
-		if (!hasPermission(creator, "schedule", "create", { user_id: creator.id, company_id })) {
+		if (!hasPermission(creator, "schedule", "create", { user_id: creator.id, company_id, finalized: true })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to create schedules."
@@ -490,7 +490,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 	try {
 		// Check if the user has permission to view users' data
-		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id, finalized: true })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to view users' data."
@@ -539,6 +539,56 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 			status: "success",
 			message: "Users' data fetched successfully!",
 			data: Object.values(users)
+		} satisfies ApiResponse)
+	} catch (error) {
+		next(error)
+	}
+})
+
+// Schema for validating the request body [finalization]
+const finalizeScheduleSchema = object({
+	schedule_ids: string().array().nonempty(),
+	finalized: boolean()
+})
+
+// PATCH /schedule/finalize (finalize schedules)
+router.patch("/finalize", getUserFromCookie, async (req: Request, res: Response, next) => {
+	const creator = req.user as User
+
+	try {
+		// Validate the request body
+		const validation = finalizeScheduleSchema.safeParse(req.body)
+		if (!validation.success) {
+			res.status(400).json({
+				status: "error",
+				message: "Invalid data! Please check the fields.",
+				errors: validation.error.errors
+			} satisfies ApiResponse)
+			return
+		}
+
+		const { schedule_ids } = validation.data
+
+		// Check if the creator has permission to finalize schedules
+		if (!hasPermission(creator, "schedule", "finalize", { user_id: creator.id, company_id: creator.user_metadata.company_id, finalized: true })) {
+			res.status(403).json({
+				status: "error",
+				message: "You do not have permission to finalize schedules."
+			} satisfies ApiResponse)
+			return
+		}
+
+		// Update the finalized status for all schedules
+		const updateQuery = `
+          UPDATE schedule
+          SET finalized = true
+          WHERE id = ANY($1)
+		`
+		await postgres.query(updateQuery, [schedule_ids])
+
+		res.status(200).json({
+			status: "success",
+			message: "Schedules finalized successfully!"
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
