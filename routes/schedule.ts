@@ -43,7 +43,7 @@ const hasSchedulesInWeek = async (startOfWeek: Date, endOfWeek: Date): Promise<b
 
 const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User) => {
 	let schedulesQuery = `
-      SELECT s.*, u.name--, u.avatar_url
+      SELECT s.*, u.name, u.avatar_url
       FROM schedule s
                JOIN "user" u ON s.user_id = u.id
       WHERE s.start >= $1
@@ -236,11 +236,11 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		endOfDay.setUTCHours(hour, 59, 59, 999) // End of the hour
 
 		let schedulesQuery = `
-        SELECT s.*, u.name--, u.avatar_url
+        SELECT s.*, u.name, u.avatar_url
         FROM schedule s
                  JOIN "user" u ON s.user_id = u.id
         WHERE s.start <= $1
-          AND $2 <= s.end 
+          AND $2 <= s.end
 		`
 
 		let queryParams: any[] = [startOfDay, endOfDay]
@@ -337,10 +337,37 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
+		// Check for overlapping schedules
+		const overlapQuery = `
+        SELECT EXISTS(SELECT 1
+                      FROM schedule
+                      WHERE user_id = $1
+                        AND (
+                          (start <= $2 AND $3 <= "end") OR
+                          (start <= $4 AND $5 <= "end") OR
+                          ($2 <= start AND "end" <= $4)
+                          ))
+		`
+		const overlapResult = await postgres.query(overlapQuery, [
+			user.id,
+			new Date(start).toISOString(),
+			new Date(start).toISOString(),
+			new Date(end).toISOString(),
+			new Date(end).toISOString()
+		])
+
+		if (overlapResult.rows[0].exists) {
+			res.status(400).json({
+				status: "error",
+				message: "A schedule already exists for this user in the specified timeframe."
+			} satisfies ApiResponse)
+			return
+		}
+
 		// Insert the new schedule into the database
 		const insertQuery = `
-          INSERT INTO schedule (start, "end", category, user_id, company_id)
-          VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO schedule (start, "end", category, user_id, company_id)
+        VALUES ($1, $2, $3, $4, $5)
 		`
 		await postgres.query(insertQuery, [
 			new Date(start).toISOString(),
@@ -353,6 +380,73 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		res.status(201).json({
 			status: "success",
 			message: "Schedule created successfully!"
+		} satisfies ApiResponse)
+	} catch (error) {
+		next(error)
+	}
+})
+
+// GET /users (fetch users' data with schedules)
+router.get("/users", getUserFromCookie, async (req: Request, res: Response, next) => {
+	const user = req.user as User
+	const { name } = req.query
+
+	// Pagination parameters
+	const limit = req.query.limit ? Number(req.query.limit) : 20
+	const page = req.query.page ? Number(req.query.page) : 1
+	const offset = (page - 1) * limit
+
+	try {
+		// Check if the user has permission to view users' data
+		if (!hasPermission(user, "schedule", "view", { user_id: user.id, company_id: user.user_metadata.company_id })) {
+			res.status(403).json({
+				status: "error",
+				message: "You do not have permission to view users' data."
+			} satisfies ApiResponse)
+			return
+		}
+
+		// Fetch users' data with schedules
+		const usersQuery = `
+          SELECT u.id, u.name, u.avatar_url, s.start, s."end"
+          FROM "user" u
+                   LEFT JOIN schedule s ON u.id = s.user_id
+          WHERE u.name ILIKE $1
+            AND u.company_id = $2
+          ORDER BY u.name
+          LIMIT $3 OFFSET $4
+		`
+		const usersResult = await postgres.query(usersQuery, [
+			`%${name}%`, // Partial name match
+			user.user_metadata.company_id, // Filter by company
+			limit,
+			offset
+		])
+
+		// Group schedules by user
+		const users: Record<string, any> = {}
+		usersResult.rows.forEach(row => {
+			if (!users[row.id]) {
+				users[row.id] = {
+					id: row.id,
+					name: row.name,
+					avatar_url: row.avatar_url,
+					schedules: []
+				}
+			}
+
+			if (row.start && row.end) {
+				users[row.id].schedules.push({
+					start: `${new Date(row.start).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.start).toISOString()}`,
+					end: `${new Date(row.end).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.end).toISOString()}`
+				})
+			}
+		})
+
+		res.json({
+			status: "success",
+			message: "Users' data fetched successfully!",
+			data: Object.values(users)
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
