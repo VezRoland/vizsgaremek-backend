@@ -208,6 +208,103 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 	}
 }
 
+// Utility function to check if a time falls within the restricted hours for users under 18
+const isRestrictedTime = (start: Date, end: Date): boolean => {
+	const startHour = start.getUTCHours() // UTC hours (21-5 UTC is restricted)
+	const endHour = end.getUTCHours()
+
+	// Check if the schedule overlaps with the restricted hours (21-5 UTC)
+	return (startHour >= 21 || startHour < 5) || // Start time is within restricted hours
+		(endHour > 21 || endHour <= 5) ||     // End time is within restricted hours
+		(startHour < 5 && endHour >= 21)
+
+}
+
+// Utility function to validate schedule constraints for a user
+const validateScheduleConstraints = async (userId: string, start: Date, end: Date, scheduleId?: string) => {
+	// Check for overlapping schedules
+	if (await hasOverlappingSchedules(userId, start, end, scheduleId)) {
+		throw {
+			message: "A schedule already exists for this user in the specified timeframe.",
+			code: 400
+		}
+	}
+
+	// Fetch user age
+	const userQuery = `
+      SELECT age
+      FROM "user"
+      WHERE id = $1
+	`
+	const userResult = await postgres.query(userQuery, [userId])
+	const userAge = userResult.rows[0]?.age
+
+	if (userAge === undefined) {
+		throw {
+			message: "User not found.",
+			code: 404
+		}
+	}
+
+	// Check if the user is under 18 and the schedule falls within restricted hours
+	if (userAge < 18 && isRestrictedTime(start, end)) {
+		throw {
+			message: "Users aged below 18 cannot work between 22-6 UTC+1 (21-5 UTC).",
+			code: 400
+		}
+	}
+
+	// Fetch the last schedule end time
+	const lastScheduleQuery = `
+      SELECT "end"
+      FROM schedule
+      WHERE user_id = $1
+      ORDER BY "end" DESC
+      LIMIT 1
+	`
+	const lastScheduleResult = await postgres.query(lastScheduleQuery, [userId])
+	const lastScheduleEnd = lastScheduleResult.rows[0]?.end
+
+	const scheduleDuration = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+
+	if (userAge >= 18) {
+		if (scheduleDuration > 12) {
+			throw {
+				message: "Employees aged 18 or more cannot work more than 12 hours.",
+				code: 400
+			}
+		}
+
+		if (lastScheduleEnd) {
+			const timeSinceLastSchedule = (start.getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
+			if (timeSinceLastSchedule < 8) {
+				throw {
+					message: "A new schedule cannot be created less than 8 hours after the last one's end.",
+					code: 400
+				}
+			}
+		}
+	} else {
+		if (scheduleDuration > 8) {
+			throw {
+				message: "Employees aged less than 18 cannot work more than 8 hours.",
+				code: 400
+			}
+		}
+
+		if (lastScheduleEnd) {
+			const timeSinceLastSchedule = (start.getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
+			if (timeSinceLastSchedule < 12) {
+				throw {
+					message: "A new schedule cannot be created less than 12 hours after the last one's end.",
+					code: 400
+				}
+			}
+		}
+	}
+}
+
+
 // GET /schedule (current week)
 router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
@@ -337,9 +434,12 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 	try {
 		const startOfDay = new Date(startOfWeek)
 		startOfDay.setDate(startOfWeek.getDate() + day)
-		startOfDay.setUTCHours(hour, 0, 0, 0)
+		console.log(hour)
+		startOfDay.setHours(hour, 0, 0, 0)
 		const endOfDay = new Date(startOfDay)
-		endOfDay.setUTCHours(hour, 59, 59, 999)
+		endOfDay.setHours(hour, 59, 59, 999)
+
+		console.log(startOfDay, endOfDay)
 
 		let schedulesQuery = `
         SELECT s.*, u.name, u.avatar_url
@@ -450,73 +550,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 		for (const userId of user_id) {
 			try {
-				if (await hasOverlappingSchedules(userId, new Date(start), new Date(end))) {
-					throw {
-						message: "A schedule already exists for this user in the specified timeframe.",
-						code: 400
-					}
-				}
-
-				const userQuery = `
-            SELECT age
-            FROM "user"
-            WHERE id = $1
-				`
-				const userResult = await postgres.query(userQuery, [userId])
-				const userAge = userResult.rows[0]?.age
-
-				if (userAge === undefined) {
-					throw {
-						message: "User not found.",
-						code: 404
-					}
-				}
-
-				const lastScheduleQuery = `
-            SELECT "end"
-            FROM schedule
-            WHERE user_id = $1
-            ORDER BY "end" DESC
-            LIMIT 1
-				`
-				const lastScheduleResult = await postgres.query(lastScheduleQuery, [userId])
-				const lastScheduleEnd = lastScheduleResult.rows[0]?.end
-
-				if (userAge >= 18) {
-					if (scheduleDuration > 12) {
-						throw {
-							message: "Employees aged 18 or more cannot work more than 12 hours.",
-							code: 400
-						}
-					}
-
-					if (lastScheduleEnd) {
-						const timeSinceLastSchedule = (new Date(start).getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
-						if (timeSinceLastSchedule < 8) {
-							throw {
-								message: "A new schedule cannot be created less than 8 hours after the last one's end.",
-								code: 400
-							}
-						}
-					}
-				} else {
-					if (scheduleDuration > 8) {
-						throw {
-							message: "Employees aged less than 18 cannot work more than 8 hours.",
-							code: 400
-						}
-					}
-
-					if (lastScheduleEnd) {
-						const timeSinceLastSchedule = (new Date(start).getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
-						if (timeSinceLastSchedule < 12) {
-							throw {
-								message: "A new schedule cannot be created less than 12 hours after the last one's end.",
-								code: 400
-							}
-						}
-					}
-				}
+				await validateScheduleConstraints(userId, new Date(start), new Date(end))
 
 				const insertQuery = `
             INSERT INTO schedule (start, "end", category, user_id, company_id)
@@ -539,6 +573,9 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		}
 
 		if (errors.length > 0) {
+			errors.forEach((item) => {
+				console.log(`User ID: ${item.user_id}, Error: ${item.message}, Code: ${item.code}`)
+			})
 			res.status(207).json({
 				status: "error",
 				message: "Some schedules could not be created.",
@@ -771,7 +808,7 @@ const updateScheduleSchema = object({
 	end: string().datetime()
 })
 
-// PATCH /schedule/:id (modify an existing schedule)
+// PATCH /schedule/update/:id (modify an existing schedule)
 router.patch("/update/:id", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const scheduleId = req.params.id
@@ -818,13 +855,7 @@ router.patch("/update/:id", getUserFromCookie, async (req: Request, res: Respons
 			return
 		}
 
-		if (await hasOverlappingSchedules(schedule.user_id, new Date(start), new Date(end), scheduleId)) {
-			res.status(400).json({
-				status: "error",
-				message: "A schedule already exists for this user in the specified timeframe."
-			} satisfies ApiResponse)
-			return
-		}
+		await validateScheduleConstraints(schedule.user_id, new Date(start), new Date(end), scheduleId)
 
 		const updateQuery = `
         UPDATE schedule
