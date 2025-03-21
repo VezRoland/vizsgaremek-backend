@@ -4,27 +4,27 @@ import { getUserFromCookie } from "../lib/utils"
 import type { ApiResponse } from "../types/response"
 import type { User } from "@supabase/supabase-js"
 import { hasPermission } from "../lib/roles"
-import { UserRole } from "../types/database"
+import { type Schedule, UserRole } from "../types/database"
 import { object, string, number, boolean } from "zod"
 
 const router = Router()
 
-// Utility function to get the start of the week (Monday)
+// Utility function to get the start of the week (Monday) in local time
 const getStartOfWeek = (date: Date): Date => {
 	const day = date.getDay()
 	const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
 	const startOfWeek = new Date(date)
 	startOfWeek.setDate(diff)
-	startOfWeek.setUTCHours(0, 0, 0, 0) // Explicitly set time to 00:00:00.000
+	startOfWeek.setHours(0, 0, 0, 0) // Set time to 00:00:00.000 in local time
 	return startOfWeek
 }
 
-// Utility function to get the end of the week (Sunday)
+// Utility function to get the end of the week (Sunday) in local time
 const getEndOfWeek = (date: Date): Date => {
 	const startOfWeek = getStartOfWeek(date)
 	const endOfWeek = new Date(startOfWeek)
 	endOfWeek.setDate(startOfWeek.getDate() + 6)
-	endOfWeek.setUTCHours(23, 59, 59, 999) // Set time to the end of the day
+	endOfWeek.setHours(23, 59, 59, 999) // Set time to the end of the day in local time
 	return endOfWeek
 }
 
@@ -36,7 +36,7 @@ const hasSchedulesInWeek = async (startOfWeek: Date, endOfWeek: Date): Promise<b
                     WHERE start >= $1
                       AND "end" <= $2)
 	`
-	const result = await postgres.query(query, [startOfWeek, endOfWeek])
+	const result = await postgres.query(query, [startOfWeek.toISOString(), endOfWeek.toISOString()])
 	return result.rows[0].exists
 }
 
@@ -92,15 +92,18 @@ const generateKeysForSchedule = (start: Date, end: Date, startOfWeek: Date, endO
 	const startHour = roundDownHour(scheduleStart)
 	const endHour = roundUpHour(new Date(scheduleEnd.getTime() - 1)) // Subtract 1 millisecond to avoid overlapping
 
+	// Adjust the end hour by subtracting 1
+	const adjustedEndHour = endHour - 1
+
 	// Get the day ID for the schedule
 	const startDayId = getDayId(scheduleStart)
 	const endDayId = getDayId(scheduleEnd)
 
-	// Generate keys for all hours between startHour and endHour
+	// Generate keys for all hours between startHour and adjustedEndHour
 	let currentHour = startHour
 	let currentDayId = startDayId
 
-	while (currentHour <= endHour || currentDayId !== endDayId) {
+	while (currentHour <= adjustedEndHour || currentDayId !== endDayId) {
 		keys.push(`${currentHour}-${currentDayId}`)
 
 		// Move to the next hour
@@ -124,7 +127,7 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
         AND s.end >= $2
 	`
 
-	let queryParams: any[] = [endOfWeek, startOfWeek]
+	let queryParams: any[] = [endOfWeek.toISOString(), startOfWeek.toISOString()]
 
 	// Add role-specific filters
 	switch (Number(user.user_metadata.role)) {
@@ -144,11 +147,43 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 	schedulesQuery += " ORDER BY s.start"
 
 	const schedulesResult = await postgres.query(schedulesQuery, queryParams)
-	return schedulesResult.rows
+	return schedulesResult.rows.map(schedule => ({
+		...schedule,
+		start: formatDateToLocal(new Date(schedule.start)), // Convert UTC to local time
+		end: formatDateToLocal(new Date(schedule.end)) // Convert UTC to local time
+	}))
+}
+
+const formatDateToLocal = (date: Date | null, timeZone: string = "Europe/Budapest"): string | null => {
+	if (date === null) {
+		return null
+	}
+
+	const formatter = new Intl.DateTimeFormat("en-US", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false // Use 24-hour format
+	})
+
+	const parts = formatter.formatToParts(date)
+
+	const year = parts.find(part => part.type === "year")!.value
+	const month = parts.find(part => part.type === "month")!.value
+	const day = parts.find(part => part.type === "day")!.value
+	const hour = parts.find(part => part.type === "hour")!.value
+	const minute = parts.find(part => part.type === "minute")!.value
+	const second = parts.find(part => part.type === "second")!.value
+
+	return `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`
 }
 
 // Format the schedule response
-const formatScheduleResponse = (startOfWeek: Date, schedules: any[], hasPrevWeekSchedules: boolean, hasNextWeekSchedules: boolean) => {
+const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPrevWeekSchedules: boolean, hasNextWeekSchedules: boolean) => {
 	const scheduleCounts: Record<string, number> = {}
 
 	schedules.forEach(schedule => {
@@ -167,8 +202,8 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: any[], hasPrevWeek
 
 	return {
 		week_start: startOfWeek.toISOString().split("T")[0],
-		prevDate: hasPrevWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000)).getTime() : null,
-		nextDate: hasNextWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)).getTime() : null,
+		prevDate: hasPrevWeekSchedules ? formatDateToLocal(getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000))) : null,
+		nextDate: hasNextWeekSchedules ? formatDateToLocal(getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000))) : null,
 		schedule: scheduleCounts
 	}
 }
@@ -385,6 +420,16 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 		const { start, end, category, company_id, user_id } = validation.data
 
+		// Ensure the schedule is at least 4 hours long
+		const scheduleDuration = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60)
+		if (scheduleDuration < 4) {
+			res.status(400).json({
+				status: "error",
+				message: "A schedule must be at least 4 hours long."
+			} satisfies ApiResponse)
+			return
+		}
+
 		if (!hasPermission(creator, "schedule", "create", { user_id: creator.id, company_id, finalized: true })) {
 			res.status(403).json({
 				status: "error",
@@ -436,8 +481,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 				`
 				const lastScheduleResult = await postgres.query(lastScheduleQuery, [userId])
 				const lastScheduleEnd = lastScheduleResult.rows[0]?.end
-
-				const scheduleDuration = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60)
 
 				if (userAge >= 18) {
 					if (scheduleDuration > 12) {
@@ -563,8 +606,8 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 			if (row.start && row.end) {
 				users[row.id].schedules.push({
-					start: `${new Date(row.start).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.start).toISOString()}`,
-					end: `${new Date(row.end).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.end).toISOString()}`
+					start: `${new Date(row.start).toLocaleDateString("en-US", { weekday: "long" })} - ${formatDateToLocal(new Date(row.start))}`,
+					end: `${new Date(row.end).toLocaleDateString("en-US", { weekday: "long" })} - ${formatDateToLocal(new Date(row.end))}`
 				})
 			}
 		})
@@ -729,7 +772,7 @@ const updateScheduleSchema = object({
 })
 
 // PATCH /schedule/:id (modify an existing schedule)
-router.patch("/:id", getUserFromCookie, async (req: Request, res: Response, next) => {
+router.patch("/update/:id", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const scheduleId = req.params.id
 
