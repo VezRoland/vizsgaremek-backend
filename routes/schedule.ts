@@ -64,17 +64,67 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
 	return result.rows[0].exists
 }
 
+// Helper function to round down the hour
+const roundDownHour = (date: Date): number => {
+	return date.getUTCHours()
+}
+
+// Helper function to round up the hour
+const roundUpHour = (date: Date): number => {
+	const minutes = date.getUTCMinutes()
+	return minutes > 0 ? date.getUTCHours() + 1 : date.getUTCHours()
+}
+
+// Helper function to get the day ID (Monday = 0, Sunday = 6)
+const getDayId = (date: Date): number => {
+	return date.getUTCDay() === 0 ? 6 : date.getUTCDay() - 1 // Convert Sunday (0) to 6, Monday (1) to 0, etc.
+}
+
+// Helper function to generate keys for a schedule within the current week
+const generateKeysForSchedule = (start: Date, end: Date, startOfWeek: Date, endOfWeek: Date): string[] => {
+	const keys: string[] = []
+
+	// Ensure the schedule is within the current week
+	const scheduleStart = start < startOfWeek ? startOfWeek : start
+	const scheduleEnd = end > endOfWeek ? endOfWeek : end
+
+	// Round down the start hour and round up the end hour minus 1
+	const startHour = roundDownHour(scheduleStart)
+	const endHour = roundUpHour(new Date(scheduleEnd.getTime() - 1)) // Subtract 1 millisecond to avoid overlapping
+
+	// Get the day ID for the schedule
+	const startDayId = getDayId(scheduleStart)
+	const endDayId = getDayId(scheduleEnd)
+
+	// Generate keys for all hours between startHour and endHour
+	let currentHour = startHour
+	let currentDayId = startDayId
+
+	while (currentHour <= endHour || currentDayId !== endDayId) {
+		keys.push(`${currentHour}-${currentDayId}`)
+
+		// Move to the next hour
+		currentHour++
+		if (currentHour > 23) {
+			currentHour = 0
+			currentDayId = (currentDayId + 1) % 7 // Move to the next day
+		}
+	}
+
+	return keys
+}
+
 // Fetch schedules for a specific week and user
 const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User) => {
 	let schedulesQuery = `
       SELECT s.*, u.name, u.avatar_url
       FROM schedule s
                JOIN "user" u ON s.user_id = u.id
-      WHERE s.start >= $1
-        AND s.end <= $2
+      WHERE s.start <= $1
+        AND s.end >= $2
 	`
 
-	let queryParams: any[] = [startOfWeek, endOfWeek]
+	let queryParams: any[] = [endOfWeek, startOfWeek]
 
 	// Add role-specific filters
 	switch (Number(user.user_metadata.role)) {
@@ -100,14 +150,19 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 // Format the schedule response
 const formatScheduleResponse = (startOfWeek: Date, schedules: any[], hasPrevWeekSchedules: boolean, hasNextWeekSchedules: boolean) => {
 	const scheduleCounts: Record<string, number> = {}
+
 	schedules.forEach(schedule => {
 		const start = new Date(schedule.start)
-		const hour = start.getUTCHours()
-		const day = start.getUTCDay()
-		const key = `${hour}-${day}`
+		const end = new Date(schedule.end)
 
-		if (!scheduleCounts[key]) scheduleCounts[key] = 0
-		scheduleCounts[key]++
+		// Generate keys for the schedule within the current week
+		const keys = generateKeysForSchedule(start, end, startOfWeek, getEndOfWeek(startOfWeek))
+
+		// Increment the count for each key
+		keys.forEach(key => {
+			if (!scheduleCounts[key]) scheduleCounts[key] = 0
+			scheduleCounts[key]++
+		})
 	})
 
 	return {
@@ -716,8 +771,8 @@ router.patch("/:id", getUserFromCookie, async (req: Request, res: Response, next
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to modify this schedule."
-			} satisfies ApiResponse);
-			return;
+			} satisfies ApiResponse)
+			return
 		}
 
 		if (await hasOverlappingSchedules(schedule.user_id, new Date(start), new Date(end), scheduleId)) {
