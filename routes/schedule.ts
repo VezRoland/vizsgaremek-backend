@@ -433,16 +433,21 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 
 	try {
 		const startOfDay = new Date(startOfWeek)
-		startOfDay.setDate(startOfWeek.getDate() + day)
-		console.log(hour)
+		startOfDay.setDate(startOfWeek.getDate() + day + 1)
 		startOfDay.setHours(hour, 0, 0, 0)
 		const endOfDay = new Date(startOfDay)
 		endOfDay.setHours(hour, 59, 59, 999)
 
-		console.log(startOfDay, endOfDay)
-
 		let schedulesQuery = `
         SELECT s.*, u.name, u.avatar_url
+        FROM schedule s
+                 JOIN "user" u ON s.user_id = u.id
+        WHERE s.start <= $1
+          AND $2 <= s.end
+		`
+
+		let countQuery = `
+        SELECT COUNT(*) as total
         FROM schedule s
                  JOIN "user" u ON s.user_id = u.id
         WHERE s.start <= $1
@@ -455,10 +460,12 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 			case UserRole.Owner:
 			case UserRole.Leader:
 				schedulesQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
+				countQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
 				queryParams.push(user.user_metadata.company_id, user.id)
 				break
 			case UserRole.Employee:
 				schedulesQuery += " AND s.user_id = $3"
+				countQuery += " AND s.user_id = $3"
 				queryParams.push(user.id)
 				break
 			default:
@@ -473,21 +480,32 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		queryParams.push(limit, offset)
 
 		const schedulesResult = await postgres.query(schedulesQuery, queryParams)
-		const schedules = schedulesResult.rows
+		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2)) // Exclude limit and offset for count query
+
+		const totalSchedules = Number(countResult.rows[0].total)
+		const totalPages = Math.ceil(totalSchedules / limit)
 
 		res.json({
 			status: "success",
 			message: "Schedules fetched successfully!",
-			data: schedules.map(schedule => ({
-				id: schedule.id,
-				category: schedule.category,
-				start: schedule.start.toISOString(),
-				end: schedule.end.toISOString(),
-				user: {
-					name: schedule.name,
-					avatar_url: schedule.avatar_url
+			data: {
+				schedules: schedulesResult.rows.map(schedule => ({
+					id: schedule.id,
+					category: schedule.category,
+					start: schedule.start.toISOString(),
+					end: schedule.end.toISOString(),
+					user: {
+						name: schedule.name,
+						avatar_url: schedule.avatar_url
+					}
+				})),
+				pagination: {
+					totalPages,
+					currentPage: page,
+					limit,
+					totalItems: totalSchedules
 				}
-			}))
+			}
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
@@ -556,9 +574,17 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
             INSERT INTO schedule (start, "end", category, user_id, company_id)
             VALUES ($1, $2, $3, $4, $5)
 				`
+
+				const startDate = new Date(start)
+				const endDate = new Date(end)
+				startDate.setSeconds(0)
+				startDate.setMilliseconds(0)
+				endDate.setSeconds(0)
+				endDate.setMilliseconds(0)
+
 				await postgres.query(insertQuery, [
-					new Date(start).toISOString(),
-					new Date(end).toISOString(),
+					startDate.toISOString(),
+					endDate.toISOString(),
 					category,
 					userId,
 					company_id
@@ -623,12 +649,26 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
         ORDER BY u.name
         LIMIT $3 OFFSET $4
 		`
-		const usersResult = await postgres.query(usersQuery, [
+
+		const countQuery = `
+        SELECT COUNT(*) as total
+        FROM "user" u
+        WHERE u.name ILIKE $1
+          AND u.company_id = $2
+		`
+
+		const queryParams = [
 			`%${name}%`,
 			user.user_metadata.company_id,
 			limit,
 			offset
-		])
+		]
+
+		const usersResult = await postgres.query(usersQuery, queryParams)
+		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2)) // Exclude limit and offset for count query
+
+		const totalUsers = Number(countResult.rows[0].total)
+		const totalPages = Math.ceil(totalUsers / limit)
 
 		const users: Record<string, any> = {}
 		usersResult.rows.forEach(row => {
@@ -652,7 +692,15 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 		res.json({
 			status: "success",
 			message: "Users' data fetched successfully!",
-			data: Object.values(users)
+			data: {
+				users: Object.values(users),
+				pagination: {
+					totalPages,
+					currentPage: page,
+					limit,
+					totalItems: totalUsers
+				}
+			}
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
