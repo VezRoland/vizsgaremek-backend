@@ -486,7 +486,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		const totalPages = Math.ceil(totalSchedules / limit)
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Schedules fetched successfully!",
 			data: {
 				schedules: schedulesResult.rows.map(schedule => ({
