@@ -66,18 +66,18 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
 
 // Helper function to round down the hour
 const roundDownHour = (date: Date): number => {
-	return date.getUTCHours()
+	return date.getHours()
 }
 
 // Helper function to round up the hour
 const roundUpHour = (date: Date): number => {
-	const minutes = date.getUTCMinutes()
-	return minutes > 0 ? date.getUTCHours() + 1 : date.getUTCHours()
+	const minutes = date.getMinutes()
+	return minutes > 0 ? date.getHours() + 1 : date.getHours()
 }
 
 // Helper function to get the day ID (Monday = 0, Sunday = 6)
 const getDayId = (date: Date): number => {
-	return date.getUTCDay() === 0 ? 6 : date.getUTCDay() - 1 // Convert Sunday (0) to 6, Monday (1) to 0, etc.
+	return date.getDay()
 }
 
 // Helper function to generate keys for a schedule within the current week
@@ -149,37 +149,9 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 	const schedulesResult = await postgres.query(schedulesQuery, queryParams)
 	return schedulesResult.rows.map(schedule => ({
 		...schedule,
-		start: formatDateToLocal(new Date(schedule.start)), // Convert UTC to local time
-		end: formatDateToLocal(new Date(schedule.end)) // Convert UTC to local time
+		start: new Date(schedule.start), // Convert UTC to local time
+		end: new Date(schedule.end) // Convert UTC to local time
 	}))
-}
-
-const formatDateToLocal = (date: Date | null, timeZone: string = "Europe/Budapest"): string | null => {
-	if (date === null) {
-		return null
-	}
-
-	const formatter = new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: false // Use 24-hour format
-	})
-
-	const parts = formatter.formatToParts(date)
-
-	const year = parts.find(part => part.type === "year")!.value
-	const month = parts.find(part => part.type === "month")!.value
-	const day = parts.find(part => part.type === "day")!.value
-	const hour = parts.find(part => part.type === "hour")!.value
-	const minute = parts.find(part => part.type === "minute")!.value
-	const second = parts.find(part => part.type === "second")!.value
-
-	return `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`
 }
 
 // Format the schedule response
@@ -202,8 +174,8 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 
 	return {
 		week_start: startOfWeek.toISOString().split("T")[0],
-		prevDate: hasPrevWeekSchedules ? formatDateToLocal(getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000))) : null,
-		nextDate: hasNextWeekSchedules ? formatDateToLocal(getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000))) : null,
+		prevDate: hasPrevWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000)) : null,
+		nextDate: hasNextWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)) : null,
 		schedule: scheduleCounts
 	}
 }
@@ -339,7 +311,7 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 		const data = formatScheduleResponse(startOfCurrentWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Schedules fetched successfully!",
 			data
 		} satisfies ApiResponse)
@@ -390,7 +362,7 @@ router.get("/weekStart/:weekStart", getUserFromCookie, async (req: Request, res:
 		const data = formatScheduleResponse(startOfSpecifiedWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Schedules fetched successfully!",
 			data
 		} satisfies ApiResponse)
@@ -404,6 +376,8 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
+
+	console.log(hour, day)
 
 	if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(day) || day < 0 || day > 6) {
 		res.status(400).json({
@@ -433,7 +407,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 
 	try {
 		const startOfDay = new Date(startOfWeek)
-		startOfDay.setDate(startOfWeek.getDate() + day + 1)
+		startOfDay.setDate(startOfWeek.getDate() + day)
 		startOfDay.setHours(hour, 0, 0, 0)
 		const endOfDay = new Date(startOfDay)
 		endOfDay.setHours(hour, 59, 59, 999)
@@ -624,7 +598,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 	const { name } = req.query
 
 	const limit = req.query.limit ? Number(req.query.limit) : 20
-	const page = req.query.page ? Number(req.query.page) : 1
+	const page = req.query.page ? Number(req.query.page) + 1 : 1
 	const offset = (page - 1) * limit
 
 	try {
@@ -683,14 +657,14 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 			if (row.start && row.end) {
 				users[row.id].schedules.push({
-					start: `${new Date(row.start).toLocaleDateString("en-US", { weekday: "long" })} - ${formatDateToLocal(new Date(row.start))}`,
-					end: `${new Date(row.end).toLocaleDateString("en-US", { weekday: "long" })} - ${formatDateToLocal(new Date(row.end))}`
+					start: `${new Date(row.start).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.start).toString()}`,
+					end: `${new Date(row.end).toLocaleDateString("en-US", { weekday: "long" })} - ${new Date(row.end).toString()}`
 				})
 			}
 		})
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Users' data fetched successfully!",
 			data: {
 				users: Object.values(users),
