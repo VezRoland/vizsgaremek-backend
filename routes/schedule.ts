@@ -11,11 +11,11 @@ const router = Router()
 
 // Utility function to get the start of the week (Monday) in local time
 const getStartOfWeek = (date: Date): Date => {
-	const day = date.getDay()
+	const day = date.getDay() // 0 (Sunday) to 6 (Saturday)
 	const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
 	const startOfWeek = new Date(date)
 	startOfWeek.setDate(diff)
-	startOfWeek.setHours(0, 0, 0, 0) // Set time to 00:00:00.000 in local time
+	startOfWeek.setHours(0, 0, 0, 0) // Set time to 00:00:00.000
 	return startOfWeek
 }
 
@@ -23,8 +23,15 @@ const getStartOfWeek = (date: Date): Date => {
 const getEndOfWeek = (date: Date): Date => {
 	const startOfWeek = getStartOfWeek(date)
 	const endOfWeek = new Date(startOfWeek)
-	endOfWeek.setDate(startOfWeek.getDate() + 6)
-	endOfWeek.setHours(23, 59, 59, 999) // Set time to the end of the day in local time
+	console.log("------")
+	console.log("Start: ", startOfWeek, "End: ", endOfWeek)
+	endOfWeek.setDate(startOfWeek.getDate() + 6) // Move to Sunday
+	console.log("Modified days end: ", endOfWeek)
+	endOfWeek.setHours(23, 59, 59, 999) // Set time to the end of the day
+	console.log("Modified hours end: ", endOfWeek)
+	console.log("Local end: ", endOfWeek.toString())
+	console.log("------")
+
 	return endOfWeek
 }
 
@@ -64,6 +71,12 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
 	return result.rows[0].exists
 }
 
+const isWithinHalfYear = (date: Date): boolean => {
+	const now = new Date()
+	const halfYearLater = new Date(now.getTime() + 26 * 7 * 24 * 60 * 60 * 1000) // 26 weeks later
+	return date <= halfYearLater
+}
+
 // Helper function to round down the hour
 const roundDownHour = (date: Date): number => {
 	return date.getHours()
@@ -77,7 +90,8 @@ const roundUpHour = (date: Date): number => {
 
 // Helper function to get the day ID (Monday = 0, Sunday = 6)
 const getDayId = (date: Date): number => {
-	return date.getDay()
+	const day = date.getDay() // 0 (Sunday) to 6 (Saturday)
+	return day === 0 ? 6 : day - 1 // Convert to Monday=0, Sunday=6
 }
 
 // Helper function to generate keys for a schedule within the current week
@@ -126,7 +140,7 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
       WHERE s.start <= $1
         AND s.end >= $2
 	`
-
+	console.log(startOfWeek.toISOString(), endOfWeek.toISOString())
 	let queryParams: any[] = [endOfWeek.toISOString(), startOfWeek.toISOString()]
 
 	// Add role-specific filters
@@ -155,7 +169,7 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 }
 
 // Format the schedule response
-const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPrevWeekSchedules: boolean, hasNextWeekSchedules: boolean) => {
+const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPrevWeekSchedules: boolean) => {
 	const scheduleCounts: Record<string, number> = {}
 
 	schedules.forEach(schedule => {
@@ -172,10 +186,19 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 		})
 	})
 
+	// Calculate next week's start (Monday 00:00:00)
+	const nextWeekStart = new Date(startOfWeek)
+	nextWeekStart.setDate(startOfWeek.getDate() + 7)
+	nextWeekStart.setHours(0, 0, 0, 0)
+
 	return {
 		week_start: startOfWeek.toISOString().split("T")[0],
-		prevDate: hasPrevWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000)) : null,
-		nextDate: hasNextWeekSchedules ? getStartOfWeek(new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)) : null,
+		prevDate: hasPrevWeekSchedules ?
+			new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] :
+			null,
+		nextDate: isWithinHalfYear(nextWeekStart) ?
+			nextWeekStart.toISOString().split("T")[0] :
+			null,
 		schedule: scheduleCounts
 	}
 }
@@ -276,7 +299,6 @@ const validateScheduleConstraints = async (userId: string, start: Date, end: Dat
 	}
 }
 
-
 // GET /schedule (current week)
 router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
@@ -304,11 +326,7 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 		const endOfPrevWeek = new Date(startOfPrevWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
 		const hasPrevWeekSchedules = await hasSchedulesInWeek(startOfPrevWeek, endOfPrevWeek)
 
-		const startOfNextWeek = new Date(startOfCurrentWeek.getTime() + 7 * 24 * 60 * 60 * 1000)
-		const endOfNextWeek = new Date(startOfNextWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
-		const hasNextWeekSchedules = await hasSchedulesInWeek(startOfNextWeek, endOfNextWeek)
-
-		const data = formatScheduleResponse(startOfCurrentWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
+		const data = formatScheduleResponse(startOfCurrentWeek, schedules, hasPrevWeekSchedules)
 
 		res.json({
 			status: "ignore",
@@ -323,12 +341,12 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 // GET /schedule/:weekStart (specific week)
 router.get("/weekStart/:weekStart", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
-	const weekStartMillis = Number(req.params.weekStart)
+	const startOfSpecifiedWeek = new Date(req.params.weekStart)
 
-	if (isNaN(weekStartMillis)) {
+	if (isNaN(startOfSpecifiedWeek.getDate())) {
 		res.status(400).json({
 			status: "error",
-			message: "Invalid weekStart parameter. It must be a valid timestamp in milliseconds."
+			message: "Invalid weekStart parameter. It must be a valid timestamp."
 		} satisfies ApiResponse)
 		return
 	}
@@ -346,20 +364,14 @@ router.get("/weekStart/:weekStart", getUserFromCookie, async (req: Request, res:
 			return
 		}
 
-		const startOfSpecifiedWeek = new Date(weekStartMillis)
 		const endOfSpecifiedWeek = getEndOfWeek(startOfSpecifiedWeek)
-
 		const schedules = await fetchSchedulesForWeek(startOfSpecifiedWeek, endOfSpecifiedWeek, user)
 
 		const startOfPrevWeek = new Date(startOfSpecifiedWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
 		const endOfPrevWeek = new Date(startOfPrevWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
 		const hasPrevWeekSchedules = await hasSchedulesInWeek(startOfPrevWeek, endOfPrevWeek)
 
-		const startOfNextWeek = new Date(startOfSpecifiedWeek.getTime() + 7 * 24 * 60 * 60 * 1000)
-		const endOfNextWeek = new Date(startOfNextWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
-		const hasNextWeekSchedules = await hasSchedulesInWeek(startOfNextWeek, endOfNextWeek)
-
-		const data = formatScheduleResponse(startOfSpecifiedWeek, schedules, hasPrevWeekSchedules, hasNextWeekSchedules)
+		const data = formatScheduleResponse(startOfSpecifiedWeek, schedules, hasPrevWeekSchedules)
 
 		res.json({
 			status: "ignore",
@@ -376,7 +388,6 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
-
 	console.log(hour, day)
 
 	if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(day) || day < 0 || day > 6) {
@@ -407,7 +418,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 
 	try {
 		const startOfDay = new Date(startOfWeek)
-		startOfDay.setDate(startOfWeek.getDate() + day)
+		startOfDay.setDate(startOfWeek.getDate() + day + 1)
 		startOfDay.setHours(hour, 0, 0, 0)
 		const endOfDay = new Date(startOfDay)
 		endOfDay.setHours(hour, 59, 59, 999)
@@ -512,8 +523,14 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 		const { start, end, category, company_id, user_id } = validation.data
 
+		const startDate = new Date(start)
+		const endDate = new Date(end)
+		startDate.setSeconds(0, 0)
+		endDate.setSeconds(0, 0)
+
 		// Ensure the schedule is at least 4 hours long
-		const scheduleDuration = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60)
+		const scheduleDuration = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
+
 		if (scheduleDuration < 4) {
 			res.status(400).json({
 				status: "error",
@@ -549,12 +566,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
             VALUES ($1, $2, $3, $4, $5)
 				`
 
-				const startDate = new Date(start)
-				const endDate = new Date(end)
-				startDate.setSeconds(0)
-				startDate.setMilliseconds(0)
-				endDate.setSeconds(0)
-				endDate.setMilliseconds(0)
 
 				await postgres.query(insertQuery, [
 					startDate.toISOString(),
