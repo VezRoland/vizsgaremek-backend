@@ -9,30 +9,58 @@ import { object, string, number, boolean } from "zod"
 
 const router = Router()
 
-// Utility function to get the start of the week (Monday) in local time
+// Current week
 const getStartOfWeek = (date: Date): Date => {
-	const day = date.getDay() // 0 (Sunday) to 6 (Saturday)
-	const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
-	const startOfWeek = new Date(date)
-	startOfWeek.setDate(diff)
-	startOfWeek.setHours(0, 0, 0, 0) // Set time to 00:00:00.000
-	return startOfWeek
+	const day = date.getDay()
+	const diff = date.getDate() - day + (day === 0 ? -6 : 1)
+	return new Date(
+		date.getFullYear(),
+		date.getMonth(),
+		diff,
+		0, 0, 0, 0
+	)
 }
 
-// Utility function to get the end of the week (Sunday) in local time
 const getEndOfWeek = (date: Date): Date => {
-	const startOfWeek = getStartOfWeek(date)
-	const endOfWeek = new Date(startOfWeek)
-	console.log("------")
-	console.log("Start: ", startOfWeek, "End: ", endOfWeek)
-	endOfWeek.setDate(startOfWeek.getDate() + 6) // Move to Sunday
-	console.log("Modified days end: ", endOfWeek)
-	endOfWeek.setHours(23, 59, 59, 999) // Set time to the end of the day
-	console.log("Modified hours end: ", endOfWeek)
-	console.log("Local end: ", endOfWeek.toString())
-	console.log("------")
+	const start = getStartOfWeek(date)
+	return new Date(
+		start.getFullYear(),
+		start.getMonth(),
+		start.getDate() + 6,
+		23, 59, 59, 999
+	)
+}
 
-	return endOfWeek
+// Previous week
+const getPrevWeekStart = (date: Date): Date => {
+	const start = getStartOfWeek(date)
+	return new Date(
+		start.getFullYear(),
+		start.getMonth(),
+		start.getDate() - 7,
+		0, 0, 0, 0
+	)
+}
+
+const getPrevWeekEnd = (date: Date): Date => {
+	const prevStart = getPrevWeekStart(date)
+	return new Date(
+		prevStart.getFullYear(),
+		prevStart.getMonth(),
+		prevStart.getDate() + 6,
+		23, 59, 59, 999
+	)
+}
+
+// Next week
+const getNextWeekStart = (date: Date): Date => {
+	const start = getStartOfWeek(date)
+	return new Date(
+		start.getFullYear(),
+		start.getMonth(),
+		start.getDate() + 7,
+		0, 0, 0, 0
+	)
 }
 
 // Utility function to check if there are schedules in a given week
@@ -140,7 +168,6 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
       WHERE s.start <= $1
         AND s.end >= $2
 	`
-	console.log(startOfWeek.toISOString(), endOfWeek.toISOString())
 	let queryParams: any[] = [endOfWeek.toISOString(), startOfWeek.toISOString()]
 
 	// Add role-specific filters
@@ -178,6 +205,7 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 
 		// Generate keys for the schedule within the current week
 		const keys = generateKeysForSchedule(start, end, startOfWeek, getEndOfWeek(startOfWeek))
+		console.log("ISO start:", startOfWeek, "Start: ", startOfWeek.toString(), "ISO end: ", getEndOfWeek(startOfWeek), "End:", getEndOfWeek(startOfWeek).toString())
 
 		// Increment the count for each key
 		keys.forEach(key => {
@@ -187,18 +215,13 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 	})
 
 	// Calculate next week's start (Monday 00:00:00)
-	const nextWeekStart = new Date(startOfWeek)
-	nextWeekStart.setDate(startOfWeek.getDate() + 7)
-	nextWeekStart.setHours(0, 0, 0, 0)
+	const nextWeekStart = getNextWeekStart(startOfWeek)
+	const prevWeekStart = getPrevWeekStart(startOfWeek)
 
 	return {
 		week_start: startOfWeek.toISOString().split("T")[0],
-		prevDate: hasPrevWeekSchedules ?
-			new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] :
-			null,
-		nextDate: isWithinHalfYear(nextWeekStart) ?
-			nextWeekStart.toISOString().split("T")[0] :
-			null,
+		prevDate: hasPrevWeekSchedules ? `${prevWeekStart.getFullYear()}-${String(prevWeekStart.getMonth() + 1).padStart(2, "0")}-${String(prevWeekStart.getDate()).padStart(2, "0")}` : null,
+		nextDate: isWithinHalfYear(nextWeekStart) ? `${nextWeekStart.getFullYear()}-${String(nextWeekStart.getMonth() + 1).padStart(2, "0")}-${String(nextWeekStart.getDate()).padStart(2, "0")}` : null,
 		schedule: scheduleCounts
 	}
 }
@@ -299,9 +322,10 @@ const validateScheduleConstraints = async (userId: string, start: Date, end: Dat
 	}
 }
 
-// GET /schedule (current week)
+// Combined GET /schedule route (handles both with and without weekStart parameter)
 router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
+	const { weekStart } = req.query
 
 	try {
 		if (!hasPermission(user, "schedule", "view", {
@@ -316,62 +340,48 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 			return
 		}
 
-		const now = new Date()
-		const startOfCurrentWeek = getStartOfWeek(now)
-		const endOfCurrentWeek = getEndOfWeek(now)
+		let startOfWeek: Date
 
-		const schedules = await fetchSchedulesForWeek(startOfCurrentWeek, endOfCurrentWeek, user)
+		// Determine which logic to use based on weekStart parameter
+		if (weekStart && typeof weekStart === "string") {
+			const splitDate = weekStart.split("-")
+			if (splitDate.length !== 3) {
+				res.status(400).json({
+					status: "error",
+					message: "Invalid weekStart format. Use YYYY-MM-DD."
+				} satisfies ApiResponse)
+				return
+			}
 
-		const startOfPrevWeek = new Date(startOfCurrentWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
-		const endOfPrevWeek = new Date(startOfPrevWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
-		const hasPrevWeekSchedules = await hasSchedulesInWeek(startOfPrevWeek, endOfPrevWeek)
+			const dateInWeek = new Date(
+				Number(splitDate[0]),
+				Number(splitDate[1]) - 1,
+				Number(splitDate[2])
+			)
 
-		const data = formatScheduleResponse(startOfCurrentWeek, schedules, hasPrevWeekSchedules)
+			if (isNaN(dateInWeek.getTime())) {
+				res.status(400).json({
+					status: "error",
+					message: "Invalid weekStart date."
+				} satisfies ApiResponse)
+				return
+			}
 
-		res.json({
-			status: "ignore",
-			message: "Schedules fetched successfully!",
-			data
-		} satisfies ApiResponse)
-	} catch (error) {
-		next(error)
-	}
-})
-
-// GET /schedule/:weekStart (specific week)
-router.get("/weekStart/:weekStart", getUserFromCookie, async (req: Request, res: Response, next) => {
-	const user = req.user as User
-	const startOfSpecifiedWeek = new Date(req.params.weekStart)
-
-	if (isNaN(startOfSpecifiedWeek.getDate())) {
-		res.status(400).json({
-			status: "error",
-			message: "Invalid weekStart parameter. It must be a valid timestamp."
-		} satisfies ApiResponse)
-		return
-	}
-
-	try {
-		if (!hasPermission(user, "schedule", "view", {
-			user_id: user.id,
-			company_id: user.user_metadata.company_id,
-			finalized: true
-		})) {
-			res.status(403).json({
-				status: "error",
-				message: "You do not have permission to view schedules."
-			} satisfies ApiResponse)
-			return
+			startOfWeek = getStartOfWeek(dateInWeek)
+		} else {
+			// Handle the default case (current week)
+			startOfWeek = getStartOfWeek(new Date())
 		}
 
-		const endOfSpecifiedWeek = getEndOfWeek(startOfSpecifiedWeek)
-		const schedules = await fetchSchedulesForWeek(startOfSpecifiedWeek, endOfSpecifiedWeek, user)
+		const endOfWeek = getEndOfWeek(startOfWeek)
+		const schedules = await fetchSchedulesForWeek(startOfWeek, endOfWeek, user)
 
-		const startOfPrevWeek = new Date(startOfSpecifiedWeek.getTime() - 7 * 24 * 60 * 60 * 1000)
-		const endOfPrevWeek = new Date(startOfPrevWeek.getTime() + 6 * 24 * 60 * 60 * 1000)
+		// Calculate previous week availability
+		const startOfPrevWeek = getPrevWeekStart(startOfWeek)
+		const endOfPrevWeek = getPrevWeekEnd(startOfWeek)
 		const hasPrevWeekSchedules = await hasSchedulesInWeek(startOfPrevWeek, endOfPrevWeek)
 
-		const data = formatScheduleResponse(startOfSpecifiedWeek, schedules, hasPrevWeekSchedules)
+		const data = formatScheduleResponse(startOfWeek, schedules, hasPrevWeekSchedules)
 
 		res.json({
 			status: "ignore",
@@ -388,7 +398,6 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
-	console.log(hour, day)
 
 	if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(day) || day < 0 || day > 6) {
 		res.status(400).json({
@@ -479,6 +488,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 					category: schedule.category,
 					start: schedule.start.toISOString(),
 					end: schedule.end.toISOString(),
+					finalized: schedule.finalized,
 					user: {
 						name: schedule.name,
 						avatar_url: schedule.avatar_url
@@ -566,7 +576,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
             VALUES ($1, $2, $3, $4, $5)
 				`
 
-
 				await postgres.query(insertQuery, [
 					startDate.toISOString(),
 					endDate.toISOString(),
@@ -609,7 +618,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 	const { name } = req.query
 
 	const limit = req.query.limit ? Number(req.query.limit) : 20
-	const page = req.query.page ? Number(req.query.page) + 1 : 1
+	const page = req.query.page ? Number(req.query.page) : 1
 	const offset = (page - 1) * limit
 
 	try {
@@ -625,29 +634,36 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 			return
 		}
 
-		const usersQuery = `
+		// Base query parts
+		let usersQuery = `
         SELECT u.id, u.name, u.avatar_url, s.start, s."end"
         FROM "user" u
                  LEFT JOIN schedule s ON u.id = s.user_id
-        WHERE u.name ILIKE $1
-          AND u.company_id = $2
-        ORDER BY u.name
-        LIMIT $3 OFFSET $4
 		`
 
-		const countQuery = `
+		let countQuery = `
         SELECT COUNT(*) as total
         FROM "user" u
-        WHERE u.name ILIKE $1
-          AND u.company_id = $2
 		`
 
-		const queryParams = [
-			`%${name}%`,
-			user.user_metadata.company_id,
-			limit,
-			offset
-		]
+		// Add conditions based on whether name is provided
+		const conditions = [`u.company_id = $1`]
+		const queryParams: any[] = [user.user_metadata.company_id]
+
+		if (name) {
+			conditions.push(`u.name ILIKE $2`)
+			queryParams.push(`%${name}%`)
+		}
+
+		// Add WHERE clause if there are conditions
+		if (conditions.length > 0) {
+			usersQuery += ` WHERE ${conditions.join(" AND ")}`
+			countQuery += ` WHERE ${conditions.join(" AND ")}`
+		}
+
+		// Add sorting and pagination
+		usersQuery += ` ORDER BY u.name LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`
+		queryParams.push(limit, offset)
 
 		const usersResult = await postgres.query(usersQuery, queryParams)
 		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2)) // Exclude limit and offset for count query
