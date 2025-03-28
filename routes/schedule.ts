@@ -42,16 +42,6 @@ const getPrevWeekStart = (date: Date): Date => {
 	)
 }
 
-const getPrevWeekEnd = (date: Date): Date => {
-	const prevStart = getPrevWeekStart(date)
-	return new Date(
-		prevStart.getFullYear(),
-		prevStart.getMonth(),
-		prevStart.getDate() + 6,
-		23, 59, 59, 999
-	)
-}
-
 // Next week
 const getNextWeekStart = (date: Date): Date => {
 	const start = getStartOfWeek(date)
@@ -61,18 +51,6 @@ const getNextWeekStart = (date: Date): Date => {
 		start.getDate() + 7,
 		0, 0, 0, 0
 	)
-}
-
-// Utility function to check if there are schedules in a given week
-const hasSchedulesInWeek = async (startOfWeek: Date, endOfWeek: Date): Promise<boolean> => {
-	const query = `
-      SELECT EXISTS(SELECT 1
-                    FROM schedule
-                    WHERE start >= $1
-                      AND "end" <= $2)
-	`
-	const result = await postgres.query(query, [startOfWeek.toISOString(), endOfWeek.toISOString()])
-	return result.rows[0].exists
 }
 
 // Utility function to check for overlapping schedules
@@ -160,43 +138,51 @@ const generateKeysForSchedule = (start: Date, end: Date, startOfWeek: Date, endO
 }
 
 // Fetch schedules for a specific week and user
-const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User) => {
-	let schedulesQuery = `
+const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: User, category?: number) => {
+	let query = `
       SELECT s.*, u.name, u.avatar_url
       FROM schedule s
                JOIN "user" u ON s.user_id = u.id
       WHERE s.start <= $1
         AND s.end >= $2
 	`
-	let queryParams: any[] = [endOfWeek.toISOString(), startOfWeek.toISOString()]
+	const params: any[] = [endOfWeek.toISOString(), startOfWeek.toISOString()]
+
+	// Add category filter if provided
+	if (category === 1 || category === 2) {
+		query += " AND s.category = $3"
+		params.push(category)
+	}
 
 	// Add role-specific filters
 	switch (Number(user.user_metadata.role)) {
 		case UserRole.Owner:
 		case UserRole.Leader:
-			schedulesQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
-			queryParams.push(user.user_metadata.company_id, user.id)
+			query += category ? " AND (s.company_id = $4 OR s.user_id = $5)"
+				: " AND (s.company_id = $3 OR s.user_id = $4)"
+			params.push(user.user_metadata.company_id, user.id)
 			break
 		case UserRole.Employee:
-			schedulesQuery += " AND s.user_id = $3"
-			queryParams.push(user.id)
+			query += category ? " AND s.user_id = $4"
+				: " AND s.user_id = $3"
+			params.push(user.id)
 			break
 		default:
 			return []
 	}
 
-	schedulesQuery += " ORDER BY s.start"
+	query += " ORDER BY s.start"
 
-	const schedulesResult = await postgres.query(schedulesQuery, queryParams)
-	return schedulesResult.rows.map(schedule => ({
+	const result = await postgres.query(query, params)
+	return result.rows.map(schedule => ({
 		...schedule,
-		start: new Date(schedule.start), // Convert UTC to local time
-		end: new Date(schedule.end) // Convert UTC to local time
+		start: new Date(schedule.start),
+		end: new Date(schedule.end)
 	}))
 }
 
 // Format the schedule response
-const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPrevWeekSchedules: boolean) => {
+const formatScheduleResponse = async (startOfWeek: Date, schedules: Schedule[], companyId: string) => {
 	const scheduleCounts: Record<string, number> = {}
 
 	schedules.forEach(schedule => {
@@ -205,7 +191,6 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 
 		// Generate keys for the schedule within the current week
 		const keys = generateKeysForSchedule(start, end, startOfWeek, getEndOfWeek(startOfWeek))
-		console.log("ISO start:", startOfWeek, "Start: ", startOfWeek.toString(), "ISO end: ", getEndOfWeek(startOfWeek), "End:", getEndOfWeek(startOfWeek).toString())
 
 		// Increment the count for each key
 		keys.forEach(key => {
@@ -218,12 +203,58 @@ const formatScheduleResponse = (startOfWeek: Date, schedules: Schedule[], hasPre
 	const nextWeekStart = getNextWeekStart(startOfWeek)
 	const prevWeekStart = getPrevWeekStart(startOfWeek)
 
+	// Check if there are any schedules before the current week for this company
+	const hasPrevSchedules = await postgres.query(`
+      SELECT EXISTS(SELECT 1
+                    FROM schedule
+                    WHERE "end" < $1
+                      AND company_id = $2)
+	`, [startOfWeek.toISOString(), companyId])
+
 	return {
-		week_start: startOfWeek.toISOString().split("T")[0],
-		prevDate: hasPrevWeekSchedules ? `${prevWeekStart.getFullYear()}-${String(prevWeekStart.getMonth() + 1).padStart(2, "0")}-${String(prevWeekStart.getDate()).padStart(2, "0")}` : null,
-		nextDate: isWithinHalfYear(nextWeekStart) ? `${nextWeekStart.getFullYear()}-${String(nextWeekStart.getMonth() + 1).padStart(2, "0")}-${String(nextWeekStart.getDate()).padStart(2, "0")}` : null,
+		weekStart: startOfWeek.toISOString().split("T")[0],
+		prevDate: hasPrevSchedules.rows[0].exists
+			? `${prevWeekStart.getFullYear()}-${String(prevWeekStart.getMonth() + 1).padStart(2, "0")}-${String(prevWeekStart.getDate()).padStart(2, "0")}`
+			: null,
+		nextDate: isWithinHalfYear(nextWeekStart)
+			? `${nextWeekStart.getFullYear()}-${String(nextWeekStart.getMonth() + 1).padStart(2, "0")}-${String(nextWeekStart.getDate()).padStart(2, "0")}`
+			: null,
 		schedule: scheduleCounts
 	}
+}
+
+// Helper function to validate and parse weekStart parameter
+const parseWeekStartParam = (weekStart: unknown): Date | { error: ApiResponse } => {
+	if (!weekStart || typeof weekStart !== "string") {
+		return getStartOfWeek(new Date())
+	}
+
+	const splitDate = weekStart.split("-")
+	if (splitDate.length !== 3) {
+		return {
+			error: {
+				status: "error",
+				message: "Invalid weekStart format. Use YYYY-MM-DD."
+			}
+		}
+	}
+
+	const dateInWeek = new Date(
+		Number(splitDate[0]),
+		Number(splitDate[1]) - 1,
+		Number(splitDate[2])
+	)
+
+	if (isNaN(dateInWeek.getTime())) {
+		return {
+			error: {
+				status: "error",
+				message: "Invalid weekStart date."
+			}
+		}
+	}
+
+	return getStartOfWeek(dateInWeek)
 }
 
 // Utility function to check if a time falls within the restricted hours for users under 18
@@ -325,7 +356,7 @@ const validateScheduleConstraints = async (userId: string, start: Date, end: Dat
 // Combined GET /schedule route (handles both with and without weekStart parameter)
 router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
-	const { weekStart } = req.query
+	const { weekStart, category } = req.query
 
 	try {
 		if (!hasPermission(user, "schedule", "view", {
@@ -340,50 +371,33 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 			return
 		}
 
-		let startOfWeek: Date
-
-		// Determine which logic to use based on weekStart parameter
-		if (weekStart && typeof weekStart === "string") {
-			const splitDate = weekStart.split("-")
-			if (splitDate.length !== 3) {
+		// Validate category parameter if provided
+		let categoryNumber: number | undefined
+		if (category) {
+			categoryNumber = Number(category)
+			if (categoryNumber !== 1 && categoryNumber !== 2) {
 				res.status(400).json({
 					status: "error",
-					message: "Invalid weekStart format. Use YYYY-MM-DD."
+					message: "Invalid category parameter. Must be 1 or 2."
 				} satisfies ApiResponse)
 				return
 			}
-
-			const dateInWeek = new Date(
-				Number(splitDate[0]),
-				Number(splitDate[1]) - 1,
-				Number(splitDate[2])
-			)
-
-			if (isNaN(dateInWeek.getTime())) {
-				res.status(400).json({
-					status: "error",
-					message: "Invalid weekStart date."
-				} satisfies ApiResponse)
-				return
-			}
-
-			startOfWeek = getStartOfWeek(dateInWeek)
-		} else {
-			// Handle the default case (current week)
-			startOfWeek = getStartOfWeek(new Date())
 		}
 
+		// Handle weekStart parameter using the helper function
+		const weekStartResult = parseWeekStartParam(weekStart)
+		if ("error" in weekStartResult) {
+			res.status(400).json(weekStartResult.error)
+			return
+		}
+		const startOfWeek: Date = weekStartResult
+
 		const endOfWeek = getEndOfWeek(startOfWeek)
-		const schedules = await fetchSchedulesForWeek(startOfWeek, endOfWeek, user)
+		const schedules = await fetchSchedulesForWeek(startOfWeek, endOfWeek, user, categoryNumber)
 
-		// Calculate previous week availability
-		const startOfPrevWeek = getPrevWeekStart(startOfWeek)
-		const endOfPrevWeek = getPrevWeekEnd(startOfWeek)
-		const hasPrevWeekSchedules = await hasSchedulesInWeek(startOfPrevWeek, endOfPrevWeek)
+		const data = await formatScheduleResponse(startOfWeek, schedules, user.user_metadata.company_id)
 
-		const data = formatScheduleResponse(startOfWeek, schedules, hasPrevWeekSchedules)
-
-		res.json({
+		res.status(200).json({
 			status: "ignore",
 			message: "Schedules fetched successfully!",
 			data
@@ -407,19 +421,13 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		return
 	}
 
-	let startOfWeek: Date
-	if (req.query.week_start) {
-		startOfWeek = new Date(req.query.week_start as string)
-		if (isNaN(startOfWeek.getTime())) {
-			res.status(400).json({
-				status: "error",
-				message: "Invalid week_start parameter. It must be a valid date in the format YYYY-MM-DD."
-			} satisfies ApiResponse)
-			return
-		}
-	} else {
-		startOfWeek = getStartOfWeek(new Date())
+	// Handle weekStart parameter
+	const weekStartResult = parseWeekStartParam(req.query.weekStart)
+	if ("error" in weekStartResult) {
+		res.status(400).json(weekStartResult.error)
+		return
 	}
+	const startOfWeek: Date = weekStartResult
 
 	const limit = req.query.limit ? Number(req.query.limit) : 20
 	const page = req.query.page ? Number(req.query.page) : 1
@@ -427,7 +435,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 
 	try {
 		const startOfDay = new Date(startOfWeek)
-		startOfDay.setDate(startOfWeek.getDate() + day + 1)
+		startOfDay.setDate(startOfWeek.getDate() + day)
 		startOfDay.setHours(hour, 0, 0, 0)
 		const endOfDay = new Date(startOfDay)
 		endOfDay.setHours(hour, 59, 59, 999)
@@ -448,7 +456,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
           AND $2 <= s.end
 		`
 
-		let queryParams: any[] = [startOfDay, endOfDay]
+		let queryParams: any[] = [endOfDay.toISOString(), startOfDay.toISOString()]
 
 		switch (Number(user.user_metadata.role)) {
 			case UserRole.Owner:
@@ -474,12 +482,14 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		queryParams.push(limit, offset)
 
 		const schedulesResult = await postgres.query(schedulesQuery, queryParams)
-		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2)) // Exclude limit and offset for count query
+		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2))
 
 		const totalSchedules = Number(countResult.rows[0].total)
 		const totalPages = Math.ceil(totalSchedules / limit)
 
-		res.json({
+		res.status(200)
+			.set('Cache-Control', 'private, max-age=300')
+			.json({
 			status: "ignore",
 			message: "Schedules fetched successfully!",
 			data: {
@@ -491,7 +501,7 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 					finalized: schedule.finalized,
 					user: {
 						name: schedule.name,
-						avatar_url: schedule.avatar_url
+						avatarUrl: schedule.avatar_url
 					}
 				})),
 				pagination: {
@@ -565,7 +575,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		const errors: Array<{ user_id: string; message: string; code: number }> = []
+		const errors: Array<{ userId: string; message: string; code: number }> = []
 
 		for (const userId of user_id) {
 			try {
@@ -585,7 +595,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 				])
 			} catch (error: any) {
 				errors.push({
-					user_id: userId,
+					userId: userId,
 					message: error.message,
 					code: error.code || 500
 				})
@@ -593,9 +603,6 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		}
 
 		if (errors.length > 0) {
-			errors.forEach((item) => {
-				console.log(`User ID: ${item.user_id}, Error: ${item.message}, Code: ${item.code}`)
-			})
 			res.status(207).json({
 				status: "error",
 				message: "Some schedules could not be created.",
@@ -634,50 +641,84 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 			return
 		}
 
-		// Base query parts
-		let usersQuery = `
-        SELECT u.id, u.name, u.avatar_url, s.start, s."end"
-        FROM "user" u
-                 LEFT JOIN schedule s ON u.id = s.user_id
-		`
-
-		let countQuery = `
-        SELECT COUNT(*) as total
-        FROM "user" u
-		`
-
-		// Add conditions based on whether name is provided
+		// Base conditions
 		const conditions = [`u.company_id = $1`]
-		const queryParams: any[] = [user.user_metadata.company_id]
+		const baseParams: (string | number)[] = [user.user_metadata.company_id]
 
 		if (name) {
 			conditions.push(`u.name ILIKE $2`)
-			queryParams.push(`%${name}%`)
+			baseParams.push(`%${name}%`)
 		}
 
-		// Add WHERE clause if there are conditions
-		if (conditions.length > 0) {
-			usersQuery += ` WHERE ${conditions.join(" AND ")}`
-			countQuery += ` WHERE ${conditions.join(" AND ")}`
+		// Get the paginated user IDs
+		const userPaginationQuery = `
+        SELECT u.id
+        FROM "user" u
+            ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+        ORDER BY u.name
+        LIMIT $${baseParams.length + 1} OFFSET $${baseParams.length + 2}
+		`
+		const paginationParams = [...baseParams, limit, offset]
+		const paginatedUserIds = await postgres.query(
+			userPaginationQuery,
+			paginationParams
+		)
+
+		// If no users found, return empty result
+		if (paginatedUserIds.rows.length === 0) {
+			res.status(200)
+				.set('Cache-Control', 'private, max-age=300')
+				.json({
+				status: "ignore",
+				message: "No users found",
+				data: {
+					users: [],
+					pagination: {
+						totalPages: 0,
+						currentPage: page,
+						limit,
+						totalItems: 0
+					}
+				}
+			} satisfies ApiResponse)
+			return
 		}
 
-		// Add sorting and pagination
-		usersQuery += ` ORDER BY u.name LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`
-		queryParams.push(limit, offset)
+		// Get complete data for the paginated users
+		const userIds: string[] = paginatedUserIds.rows.map(row => row.id)
+		const usersQuery = `
+        SELECT u.id, u.name, u.avatar_url, s.start, s.end
+        FROM "user" u
+                 LEFT JOIN schedule s ON u.id = s.user_id
+        WHERE u.id = ANY ($1)
+        ORDER BY u.name, s.start
+		`
+		const usersResult = await postgres.query(
+			usersQuery,
+			[userIds]
+		)
 
-		const usersResult = await postgres.query(usersQuery, queryParams)
-		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2)) // Exclude limit and offset for count query
-
+		// Get total count (for pagination)
+		const countQuery = `
+        SELECT COUNT(*) as total
+        FROM "user" u
+            ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+		`
+		const countResult = await postgres.query(
+			countQuery,
+			baseParams
+		)
 		const totalUsers = Number(countResult.rows[0].total)
 		const totalPages = Math.ceil(totalUsers / limit)
 
+		// Format the response
 		const users: Record<string, any> = {}
 		usersResult.rows.forEach(row => {
 			if (!users[row.id]) {
 				users[row.id] = {
 					id: row.id,
 					name: row.name,
-					avatar_url: row.avatar_url,
+					avatarUrl: row.avatar_url,
 					schedules: []
 				}
 			}
@@ -690,7 +731,9 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 			}
 		})
 
-		res.json({
+		res.status(200)
+			.set('Cache-Control', 'private, max-age=300')
+			.json({
 			status: "ignore",
 			message: "Users' data fetched successfully!",
 			data: {
@@ -710,7 +753,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 // Schema for validating the request body [finalization]
 const finalizeScheduleSchema = object({
-	schedule_ids: string().array().nonempty(),
+	scheduleIds: string().array().nonempty(),
 	finalized: boolean()
 })
 
@@ -729,7 +772,7 @@ router.patch("/finalize", getUserFromCookie, async (req: Request, res: Response,
 			return
 		}
 
-		const { schedule_ids } = validation.data
+		const { scheduleIds } = validation.data
 
 		if (!hasPermission(creator, "schedule", "finalize", {
 			user_id: creator.id,
@@ -748,7 +791,7 @@ router.patch("/finalize", getUserFromCookie, async (req: Request, res: Response,
         SET finalized = true
         WHERE id = ANY ($1)
 		`
-		await postgres.query(updateQuery, [schedule_ids])
+		await postgres.query(updateQuery, [scheduleIds])
 
 		res.status(200).json({
 			status: "success",
@@ -761,7 +804,7 @@ router.patch("/finalize", getUserFromCookie, async (req: Request, res: Response,
 
 // Schema for validating the request body
 const deleteScheduleSchema = object({
-	schedule_ids: string().array().nonempty()
+	scheduleIds: string().array().nonempty()
 })
 
 // DELETE /schedule (delete schedules)
@@ -779,23 +822,23 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 			return
 		}
 
-		const { schedule_ids } = validation.data
+		const { scheduleIds } = validation.data
 
-		const errors: Array<{ schedule_id: string; message: string; code: number }> = []
+		const errors: Array<{ scheduleId: string; message: string; code: number }> = []
 
 		const fetchSchedulesQuery = `
         SELECT id, finalized
         FROM schedule
         WHERE id = ANY ($1)
 		`
-		const fetchSchedulesResult = await postgres.query(fetchSchedulesQuery, [schedule_ids])
+		const fetchSchedulesResult = await postgres.query(fetchSchedulesQuery, [scheduleIds])
 
 		const existingScheduleIds = fetchSchedulesResult.rows.map(row => row.id)
-		const missingScheduleIds = schedule_ids.filter(id => !existingScheduleIds.includes(id))
+		const missingScheduleIds = scheduleIds.filter(id => !existingScheduleIds.includes(id))
 		if (missingScheduleIds.length > 0) {
 			for (const missingId of missingScheduleIds) {
 				errors.push({
-					schedule_id: missingId,
+					scheduleId: missingId,
 					message: "Schedule not found.",
 					code: 404
 				})
@@ -809,7 +852,7 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 				finalized: true
 			})) {
 				errors.push({
-					schedule_id: schedule.id,
+					scheduleId: schedule.id,
 					message: "You do not have permission to delete a finalized schedule.",
 					code: 403
 				})
@@ -819,7 +862,7 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 				finalized: false
 			})) {
 				errors.push({
-					schedule_id: schedule.id,
+					scheduleId: schedule.id,
 					message: "You do not have permission to delete this schedule.",
 					code: 403
 				})
@@ -840,7 +883,7 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
         FROM schedule
         WHERE id = ANY ($1)
 		`
-		await postgres.query(deleteQuery, [schedule_ids])
+		await postgres.query(deleteQuery, [scheduleIds])
 
 		res.status(200).json({
 			status: "success",
