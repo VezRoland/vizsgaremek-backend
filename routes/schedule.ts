@@ -67,8 +67,6 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
                      ) -- Not an error, ignore
 	`;
 
-	console.log(start, end)
-
 	const params: any[] = [
 		userId,
 		start.toISOString(),
@@ -412,8 +410,8 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 
 	try {
 		if (!hasPermission(user, "schedule", "view", {
-			user_id: user.id,
-			company_id: user.user_metadata.company_id,
+			userId: user.id,
+			companyId: user.user_metadata.company_id,
 			finalized: true
 		})) {
 			res.status(403).json({
@@ -461,8 +459,6 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 
 // GET /schedule/details/:hourDay (detailed schedules for a specific hour and day)
 router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Response, next) => {
-
-	console.log("called")
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
@@ -583,8 +579,8 @@ const createScheduleSchema = object({
 	start: string().datetime(),
 	end: string().datetime(),
 	category: number().min(1).max(2),
-	company_id: string(),
-	user_id: string().array().nonempty()
+	companyId: string(),
+	userIds: string().array().nonempty()
 })
 
 // POST /schedule (create a new schedule)
@@ -602,7 +598,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		const { start, end, category, company_id, user_id } = validation.data
+		const { start, end, category, companyId, userIds } = validation.data
 
 		const startDate = new Date(start)
 		const endDate = new Date(end)
@@ -620,7 +616,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		if (!hasPermission(creator, "schedule", "create", { user_id: creator.id, company_id, finalized: true })) {
+		if (!hasPermission(creator, "schedule", "create", { userId: creator.id, companyId, finalized: true })) {
 			res.status(403).json({
 				status: "error",
 				message: "You do not have permission to create schedules."
@@ -628,7 +624,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			return
 		}
 
-		if (creator.user_metadata.company_id !== company_id) {
+		if (creator.user_metadata.company_id !== companyId) {
 			res.status(403).json({
 				status: "error",
 				message: "You are not authorized to create schedules for this company!"
@@ -638,7 +634,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 		const errors: Array<{ userId: string; message: string; code: number }> = []
 
-		for (const userId of user_id) {
+		for (const userId of userIds) {
 			try {
 				await validateScheduleConstraints(userId, new Date(start), new Date(end))
 
@@ -652,7 +648,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 					endDate.toISOString(),
 					category,
 					userId,
-					company_id
+					companyId
 				])
 			} catch (error: any) {
 				errors.push({
@@ -692,8 +688,8 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 	try {
 		if (!hasPermission(user, "schedule", "view", {
-			user_id: user.id,
-			company_id: user.user_metadata.company_id,
+			userId: user.id,
+			companyId: user.user_metadata.company_id,
 			finalized: true
 		})) {
 			res.status(403).json({
@@ -837,8 +833,8 @@ router.patch("/finalize", getUserFromCookie, async (req: Request, res: Response,
 		const { scheduleIds } = validation.data
 
 		if (!hasPermission(creator, "schedule", "finalize", {
-			user_id: creator.id,
-			company_id: creator.user_metadata.company_id,
+			userId: creator.id,
+			companyId: creator.user_metadata.company_id,
 			finalized: true
 		})) {
 			res.status(403).json({
@@ -909,8 +905,8 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 
 		for (const schedule of fetchSchedulesResult.rows) {
 			if (schedule.finalized && !hasPermission(user, "schedule", "delete", {
-				user_id: user.id,
-				company_id: user.user_metadata.company_id,
+				userId: user.id,
+				companyId: user.user_metadata.company_id,
 				finalized: true
 			})) {
 				errors.push({
@@ -919,8 +915,8 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 					code: 403
 				})
 			} else if (!hasPermission(user, "schedule", "delete", {
-				user_id: user.id,
-				company_id: user.user_metadata.company_id,
+				userId: user.id,
+				companyId: user.user_metadata.company_id,
 				finalized: false
 			})) {
 				errors.push({
@@ -998,8 +994,8 @@ router.patch("/update/:id", getUserFromCookie, async (req: Request, res: Respons
 		const schedule = fetchScheduleResult.rows[0]
 
 		if (!hasPermission(user, "schedule", "update", {
-			user_id: schedule.user_id,
-			company_id: schedule.company_id,
+			userId: schedule.user_id,
+			companyId: schedule.company_id,
 			finalized: schedule.finalized
 		})) {
 			res.status(403).json({

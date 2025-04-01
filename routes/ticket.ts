@@ -32,7 +32,11 @@ const fetchTicketDetails = async (ticketId: string, user: any) => {
 	if (!ticket) return null
 
 	// Check if the user has permission to view the ticket
-	if (!hasPermission(user, "tickets", "view", ticket)) {
+	if (!hasPermission(user, "tickets", "view", {
+		...ticket,
+		userId: ticket.user_id,
+		companyId: ticket.company_id
+	})) {
 		return null
 	}
 
@@ -67,7 +71,10 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 	const { title, content, company_id } = data
 
 	// Check if the user has permission to create a ticket
-	if (!hasPermission(user, "tickets", "create", data)) {
+	if (!hasPermission(user, "tickets", "create", {
+		userId: user.id,
+		companyId: company_id
+	})) {
 		res.status(403).json({
 			status: "error",
 			message: "You are not authorized to create a ticket!"
@@ -201,7 +208,11 @@ router.patch("/:id/status", getUserFromCookie, async (req: Request, res: Respons
 		}
 
 		// Check if the user has permission to close the ticket
-		if (!hasPermission(user, "tickets", "close", ticket)) {
+		if (!hasPermission(user, "tickets", "close", {
+			...ticket,
+			userId: ticket.user_id,
+			companyId: ticket.company_id
+		})) {
 			res.status(403).json({
 				status: "error",
 				message: "You are not authorized to close this ticket!"
@@ -254,7 +265,11 @@ router.post("/:id/response", getUserFromCookie, async (req: Request, res: Respon
 		}
 
 		// Check if the user has permission to respond to the ticket
-		if (!hasPermission(user, "tickets", "respond", ticket)) {
+		if (!hasPermission(user, "tickets", "respond", {
+			...ticket,
+			userId: ticket.user_id,
+			companyId: ticket.company_id
+		})) {
 			res.status(403).json({
 				status: "error",
 				message: "You are not authorized to respond to this ticket!"

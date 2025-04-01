@@ -10,8 +10,8 @@ export interface Ticket {
 	title: string
 	content: string
 	closed: boolean
-	user_id: string
-	company_id: string
+	userId: string
+	companyId: string
 	created_at: string
 }
 
@@ -20,8 +20,8 @@ export interface Schedule {
 	start: string
 	end: string
 	category: ScheduleCategory
-	user_id: string
-	company_id: string
+	userId: string
+	companyId: string
 	finalized: boolean
 }
 
