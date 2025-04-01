@@ -14,3 +14,18 @@ export interface Ticket {
 	companyId: string
 	created_at: string
 }
+
+export interface Schedule {
+	id: string
+	start: string
+	end: string
+	category: ScheduleCategory
+	userId: string
+	companyId: string
+	finalized: boolean
+}
+
+export enum ScheduleCategory {
+	Paid = 1,
+	Unpaid
+}
