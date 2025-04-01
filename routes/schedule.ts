@@ -461,6 +461,8 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 
 // GET /schedule/details/:hourDay (detailed schedules for a specific hour and day)
 router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Response, next) => {
+
+	console.log("called")
 	const user = req.user as User
 	const { hourDay } = req.params
 	const [hour, day] = hourDay.split("-").map(Number)
@@ -492,35 +494,36 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 		const endOfDay = new Date(startOfDay)
 		endOfDay.setHours(hour, 59, 59, 999)
 
-		let schedulesQuery = `
+		// Base query parts
+		const baseQuery = `
         SELECT s.*, u.name, u.avatar_url
         FROM schedule s
                  JOIN "user" u ON s.user_id = u.id
         WHERE s.start <= $1
           AND $2 <= s.end
 		`
-
-		let countQuery = `
+		const baseCountQuery = `
         SELECT COUNT(*) as total
         FROM schedule s
                  JOIN "user" u ON s.user_id = u.id
         WHERE s.start <= $1
           AND $2 <= s.end
 		`
+		const baseParams = [endOfDay.toISOString(), startOfDay.toISOString()]
 
-		let queryParams: any[] = [endOfDay.toISOString(), startOfDay.toISOString()]
+		// Role-specific conditions
+		let roleCondition = ""
+		let roleParams: any[] = []
 
 		switch (Number(user.user_metadata.role)) {
 			case UserRole.Owner:
 			case UserRole.Leader:
-				schedulesQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
-				countQuery += " AND (s.company_id = $3 OR s.user_id = $4)"
-				queryParams.push(user.user_metadata.company_id, user.id)
+				roleCondition = " AND (s.company_id = $3 OR s.user_id = $4)"
+				roleParams = [user.user_metadata.company_id, user.id]
 				break
 			case UserRole.Employee:
-				schedulesQuery += " AND s.user_id = $3"
-				countQuery += " AND s.user_id = $3"
-				queryParams.push(user.id)
+				roleCondition = " AND s.user_id = $3"
+				roleParams = [user.id]
 				break
 			default:
 				res.status(403).json({
@@ -530,40 +533,46 @@ router.get("/details/:hourDay", getUserFromCookie, async (req: Request, res: Res
 				return
 		}
 
-		schedulesQuery += " ORDER BY s.start LIMIT $5 OFFSET $6"
-		queryParams.push(limit, offset)
+		// Build final queries
+		const finalQuery = baseQuery + roleCondition + ` ORDER BY s.start LIMIT $${baseParams.length + roleParams.length + 1} OFFSET $${baseParams.length + roleParams.length + 2}`
+		const finalCountQuery = baseCountQuery + roleCondition
 
-		const schedulesResult = await postgres.query(schedulesQuery, queryParams)
-		const countResult = await postgres.query(countQuery, queryParams.slice(0, -2))
+		const queryParams = [...baseParams, ...roleParams, limit, offset]
+		const countParams = [...baseParams, ...roleParams]
+
+		// Execute queries
+		const [schedulesResult, countResult] = await Promise.all([
+			postgres.query(finalQuery, queryParams),
+			postgres.query(finalCountQuery, countParams)
+		])
 
 		const totalSchedules = Number(countResult.rows[0].total)
 		const totalPages = Math.ceil(totalSchedules / limit)
 
 		res.status(200)
-			.set('Cache-Control', 'private, max-age=300')
 			.json({
-			status: "ignore",
-			message: "Schedules fetched successfully!",
-			data: {
-				schedules: schedulesResult.rows.map(schedule => ({
-					id: schedule.id,
-					category: schedule.category,
-					start: schedule.start.toISOString(),
-					end: schedule.end.toISOString(),
-					finalized: schedule.finalized,
-					user: {
-						name: schedule.name,
-						avatarUrl: schedule.avatar_url
+				status: "ignore",
+				message: "Schedules fetched successfully!",
+				data: {
+					schedules: schedulesResult.rows.map(schedule => ({
+						id: schedule.id,
+						category: schedule.category,
+						start: new Date(schedule.start).toISOString(),
+						end: new Date(schedule.end).toISOString(),
+						finalized: schedule.finalized,
+						user: {
+							name: schedule.name,
+							avatarUrl: schedule.avatar_url
+						}
+					})),
+					pagination: {
+						totalPages,
+						currentPage: page,
+						limit,
+						totalItems: totalSchedules
 					}
-				})),
-				pagination: {
-					totalPages,
-					currentPage: page,
-					limit,
-					totalItems: totalSchedules
 				}
-			}
-		} satisfies ApiResponse)
+			} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
 	}
