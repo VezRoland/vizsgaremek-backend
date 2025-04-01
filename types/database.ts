@@ -10,7 +10,7 @@ export interface Ticket {
 	title: string
 	content: string
 	closed: boolean
-	user_id: string
-	company_id: string
+	userId: string
+	companyId: string
 	created_at: string
 }
