@@ -55,27 +55,39 @@ const getNextWeekStart = (date: Date): Date => {
 
 // Utility function to check for overlapping schedules
 const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, excludeScheduleId?: string): Promise<boolean> => {
-	const query = `
-      SELECT EXISTS(SELECT 1
-                    FROM schedule
-                    WHERE user_id = $1
-                      AND id != $2
-                      AND (
-                        (start <= $3 AND $4 <= "end") OR
-                        (start <= $5 AND $6 <= "end") OR
-                        ($3 <= start AND "end" <= $5)
-                        ))
-	`
-	const result = await postgres.query(query, [
+	// Base query without exclusion
+	let query = `
+      SELECT EXISTS(
+                 SELECT 1 FROM schedule
+                 WHERE user_id = $1
+                   AND (
+                     (start <= $2 AND $3 <= "end") OR
+                     (start <= $4 AND $5 <= "end") OR
+                     ($2 <= start AND "end" <= $4)
+                     ) -- Not an error, ignore
+	`;
+
+	console.log(start, end)
+
+	const params: any[] = [
 		userId,
-		excludeScheduleId || null,
 		start.toISOString(),
 		start.toISOString(),
 		end.toISOString(),
 		end.toISOString()
-	])
-	return result.rows[0].exists
-}
+	];
+
+	// Add exclusion if needed
+	if (excludeScheduleId) {
+		query += ` AND id != $${params.length + 1}`;
+		params.push(excludeScheduleId);
+	}
+
+	query += `)`;
+
+	const result = await postgres.query(query, params);
+	return result.rows[0].exists;
+};
 
 const isWithinHalfYear = (date: Date): boolean => {
 	const now = new Date()
@@ -259,14 +271,19 @@ const parseWeekStartParam = (weekStart: unknown): Date | { error: ApiResponse } 
 
 // Utility function to check if a time falls within the restricted hours for users under 18
 const isRestrictedTime = (start: Date, end: Date): boolean => {
-	const startHour = start.getUTCHours() // UTC hours (21-5 UTC is restricted)
-	const endHour = end.getUTCHours()
+	// Convert to Amsterdam time (handles both CET and CEST automatically)
+	const amsterdamStart = new Date(start.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
+	const amsterdamEnd = new Date(end.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
 
-	// Check if the schedule overlaps with the restricted hours (21-5 UTC)
-	return (startHour >= 21 || startHour < 5) || // Start time is within restricted hours
-		(endHour > 21 || endHour <= 5) ||     // End time is within restricted hours
-		(startHour < 5 && endHour >= 21)
+	const startHour = amsterdamStart.getHours();
+	const endHour = amsterdamEnd.getHours();
 
+	// Restricted hours are 22:00-06:00 Amsterdam time (regardless of DST)
+	const isStartRestricted = startHour >= 22 || startHour < 6;
+	const isEndRestricted = endHour > 22 || endHour <= 6;
+	const spansNight = startHour < 6 && endHour >= 22;
+
+	return isStartRestricted || isEndRestricted || spansNight;
 }
 
 // Utility function to validate schedule constraints for a user
@@ -303,19 +320,74 @@ const validateScheduleConstraints = async (userId: string, start: Date, end: Dat
 		}
 	}
 
-	// Fetch the last schedule end time
-	const lastScheduleQuery = `
-      SELECT "end"
-      FROM schedule
-      WHERE user_id = $1
-      ORDER BY "end" DESC
-      LIMIT 1
-	`
-	const lastScheduleResult = await postgres.query(lastScheduleQuery, [userId])
-	const lastScheduleEnd = lastScheduleResult.rows[0]?.end
-
 	const scheduleDuration = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
 
+	// Fetch both previous and next schedules relative to the new schedule
+	const adjacentSchedulesQuery = `
+      SELECT "start", "end"
+      FROM schedule
+      WHERE user_id = $1
+        AND (COALESCE($2, '') = '' OR id != $2::uuid)
+      ORDER BY "start"
+	`
+	const adjacentSchedulesResult = await postgres.query(adjacentSchedulesQuery, [userId, scheduleId])
+	const adjacentSchedules = adjacentSchedulesResult.rows.map(row => ({
+		start: new Date(row.start),
+		end: new Date(row.end)
+	}))
+
+	// Find the immediate previous and next schedules
+	let previousSchedule: { start: Date, end: Date } | null = null
+	let nextSchedule: { start: Date, end: Date } | null = null
+
+	for (const schedule of adjacentSchedules) {
+		if (schedule.end <= start) {
+			previousSchedule = schedule
+		} else if (schedule.start >= end) {
+			nextSchedule = schedule
+			break // We only need the first one after our schedule
+		}
+	}
+
+	// Validate against previous schedule
+	if (previousSchedule) {
+		const timeAfterPreviousEnd = (start.getTime() - previousSchedule.end.getTime()) / (1000 * 60 * 60)
+
+		if (userAge >= 18 && timeAfterPreviousEnd < 8) {
+			throw {
+				message: "A new schedule cannot start less than 8 hours after the previous schedule ends.",
+				code: 400
+			}
+		}
+
+		if (userAge < 18 && timeAfterPreviousEnd < 12) {
+			throw {
+				message: "For employees under 18, a new schedule cannot start less than 12 hours after the previous schedule ends.",
+				code: 400
+			}
+		}
+	}
+
+	// Validate against next schedule
+	if (nextSchedule) {
+		const timeBeforeNextStart = (nextSchedule.start.getTime() - end.getTime()) / (1000 * 60 * 60)
+
+		if (userAge >= 18 && timeBeforeNextStart < 8) {
+			throw {
+				message: "A new schedule cannot end less than 8 hours before the next schedule starts.",
+				code: 400
+			}
+		}
+
+		if (userAge < 18 && timeBeforeNextStart < 12) {
+			throw {
+				message: "For employees under 18, a new schedule cannot end less than 12 hours before the next schedule starts.",
+				code: 400
+			}
+		}
+	}
+
+	// Validate maximum duration
 	if (userAge >= 18) {
 		if (scheduleDuration > 12) {
 			throw {
@@ -323,31 +395,11 @@ const validateScheduleConstraints = async (userId: string, start: Date, end: Dat
 				code: 400
 			}
 		}
-
-		if (lastScheduleEnd) {
-			const timeSinceLastSchedule = (start.getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
-			if (timeSinceLastSchedule < 8) {
-				throw {
-					message: "A new schedule cannot be created less than 8 hours after the last one's end.",
-					code: 400
-				}
-			}
-		}
 	} else {
 		if (scheduleDuration > 8) {
 			throw {
 				message: "Employees aged less than 18 cannot work more than 8 hours.",
 				code: 400
-			}
-		}
-
-		if (lastScheduleEnd) {
-			const timeSinceLastSchedule = (start.getTime() - new Date(lastScheduleEnd).getTime()) / (1000 * 60 * 60)
-			if (timeSinceLastSchedule < 12) {
-				throw {
-					message: "A new schedule cannot be created less than 12 hours after the last one's end.",
-					code: 400
-				}
 			}
 		}
 	}
@@ -603,6 +655,7 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 		}
 
 		if (errors.length > 0) {
+			console.log(errors)
 			res.status(207).json({
 				status: "error",
 				message: "Some schedules could not be created.",
