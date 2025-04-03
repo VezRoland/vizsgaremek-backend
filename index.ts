@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser"
 import postgres from "./lib/postgres"
 import ticketRouter from "./routes/ticket.ts"
 import scheduleRouter from "./routes/schedule.ts"
+import trainingRouter from "./routes/training.ts"
 import { getUserFromCookie } from "./lib/utils"
 import { object, string, z } from "zod"
 
@@ -21,6 +22,7 @@ app.use(cookieParser())
 
 app.use("/ticket", ticketRouter)
 app.use("/schedule", scheduleRouter)
+app.use("/training", trainingRouter)
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 	console.error(err.stack)

@@ -29,3 +29,32 @@ export enum ScheduleCategory {
 	Paid = 1,
 	Unpaid
 }
+
+export interface Training {
+	id: string;
+	name: string;
+	description: string;
+	isActive: boolean;
+	role: UserRole;
+	companyId: string;
+	created_at: string;
+	questions: Array<{
+		id: string;
+		name: string;
+		answers: string[];
+		multipleCorrect: boolean;
+	}>;
+}
+
+export interface Submission {
+	id: string;
+	userId: string;
+	trainingId: string;
+	companyId: string;
+	role: UserRole;
+	created_at: string;
+	answers: Array<{
+		id: string;
+		answer: string;
+	}>;
+}
