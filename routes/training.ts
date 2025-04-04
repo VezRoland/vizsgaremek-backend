@@ -12,28 +12,32 @@ import type { Multer } from "multer"
 
 const router = Router()
 
+interface Answer {
+	text: string;
+	correct: boolean;
+}
+
 interface Question {
 	id: string;
 	name: string;
-	answers: string[];
-	correctAnswer: number | number[];
-	multipleCorrect: boolean;
+	answers: Answer[];
 }
 
 interface UserAnswer {
 	id: string;
-	answer: string | string[];
+	answers: string[];
 }
 
 interface AnswerEvaluation {
 	correct: boolean;
 	correctAnswers: string[];
-	userAnswer: string | string[];
+	userAnswers: string[];
 }
 
 interface QuestionEvaluation extends AnswerEvaluation {
 	questionId: string;
 	questionName: string;
+	multipleCorrect: boolean;
 }
 
 interface SubmissionEvaluation {
@@ -41,6 +45,11 @@ interface SubmissionEvaluation {
 	correctCount: number;
 	incorrectCount: number;
 	questionEvaluations: QuestionEvaluation[];
+}
+
+// Helper to determine if question has multiple correct answers
+const hasMultipleCorrect = (answers: Answer[]): boolean => {
+	return answers.filter(a => a.correct).length > 1
 }
 
 // Utility function to evaluate a submission against training questions
@@ -52,35 +61,15 @@ const evaluateSubmission = (questions: Question[], userAnswers: UserAnswer[]): S
 		const userAnswer = userAnswers.find(a => a.id === question.id)
 		if (!userAnswer) return
 
-		let isCorrect: boolean
-		let correctAnswers: string[]
+		const correctAnswers = question.answers
+			.filter(answer => answer.correct)
+			.map(answer => answer.text)
 
-		if (question.multipleCorrect) {
-			// For multiple correct answers
-			const correctIndices = Array.isArray(question.correctAnswer)
-				? question.correctAnswer
-				: [question.correctAnswer]
-			correctAnswers = correctIndices.map(idx => question.answers[idx])
-
-			if (Array.isArray(userAnswer.answer)) {
-				const userSelected = userAnswer.answer.map(ans =>
-					question.answers.findIndex(a => a === ans)
-				).filter(idx => idx !== -1)
-
-				isCorrect = userSelected.length === correctIndices.length &&
-					userSelected.every(idx => correctIndices.includes(idx))
-			} else {
-				isCorrect = false
-			}
-		} else {
-			// For single correct answer
-			const correctIndex = Array.isArray(question.correctAnswer)
-				? question.correctAnswer[0]
-				: question.correctAnswer
-			correctAnswers = [question.answers[correctIndex]]
-
-			isCorrect = question.answers[correctIndex] === userAnswer.answer
-		}
+		const isCorrect =
+			userAnswer.answers.length === correctAnswers.length &&
+			userAnswer.answers.every(answer =>
+				correctAnswers.includes(answer)
+			)
 
 		if (isCorrect) correctCount++
 
@@ -88,8 +77,9 @@ const evaluateSubmission = (questions: Question[], userAnswers: UserAnswer[]): S
 			questionId: question.id,
 			questionName: question.name,
 			correct: isCorrect,
-			correctAnswers,
-			userAnswer: userAnswer.answer
+			correctAnswers, // Only used internally
+			userAnswers: userAnswer.answers,
+			multipleCorrect: hasMultipleCorrect(question.answers)
 		})
 	})
 
@@ -118,12 +108,22 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 			return
 		}
 
-		// Base query to get trainings
+		// Base query to get trainings with additional fields
 		const query = `
         SELECT t.id,
                t.name,
                t.description,
-               jsonb_array_length(t.questions) as "questionCount"
+               t.created_at as "createdAt",
+               EXISTS (
+                   SELECT 1 FROM in_progress ip
+                   WHERE ip.user_id = $${user.user_metadata.role === UserRole.Employee ? '3' : '2'}
+                   AND ip.training_id = t.id
+               ) as "active",
+               EXISTS (
+                   SELECT 1 FROM submission s 
+                   WHERE s.user_id = $${user.user_metadata.role === UserRole.Employee ? '3' : '2'}
+                   AND s.training_id = t.id
+               ) as "completed"
         FROM training t
         WHERE t.company_id = $1
             ${Number(user.user_metadata.role) === UserRole.Employee
@@ -133,26 +133,39 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 		`
 
 		const params = [user.user_metadata.company_id]
-		if (Number(user.user_metadata.role) === UserRole.Employee) params.push(String(UserRole.Employee))
+		if (Number(user.user_metadata.role) === UserRole.Employee) {
+			params.push(String(UserRole.Employee))
+		}
+		// Add user ID for the active/completed checks
+		params.push(user.id)
 
 		const result = await postgres.query(query, params)
+
+		// Format the response
+		const formattedTrainings = result.rows.map(row => ({
+			id: row.id,
+			name: row.name,
+			description: row.description,
+			createdAt: row.createdAt,
+			active: row.active,
+			completed: row.completed
+		}))
 
 		res.status(200).json({
 			status: "ignore",
 			message: "Trainings fetched successfully!",
-			data: result.rows
+			data: formattedTrainings
 		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
 	}
 })
 
-// GET /training/submissions (get 10 most recent submissions with correctness counts)
-router.get("/submissions", getUserFromCookie, async (req: Request, res: Response, next) => {
+// GET /training/results (get 10 most recent submissions with correctness counts)
+router.get("/results", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 
 	try {
-		// Check if user has permission to view submissions | This is only against admins and employees
 		if (!hasPermission(user, "submission", "view", {
 			companyId: user.user_metadata.company_id,
 			role: Number(user.user_metadata.role),
@@ -165,7 +178,6 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 			return
 		}
 
-		// Query to get submissions with training questions
 		const query = `
         SELECT s.id,
                s.created_at as "createdAt",
@@ -183,33 +195,20 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 
 		const result = await postgres.query(query, [user.user_metadata.company_id])
 
-		// Process submissions to get counts only
 		const submissions = result.rows.map(row => {
-			let correctCount = 0
-			const questions: Question[] = row.trainingQuestions
-			const userAnswers: UserAnswer[] = row.userAnswers
-
-			questions.forEach(question => {
-				const userAnswer = userAnswers.find(a => a.id === question.id)
-				if (!userAnswer) return
-
-				const correctIndex = Array.isArray(question.correctAnswer)
-					? question.correctAnswer[0]
-					: question.correctAnswer
-
-				if (question.answers[correctIndex] === userAnswer.answer) {
-					correctCount++
-				}
-			})
+			const evaluation = evaluateSubmission(
+				row.trainingQuestions,
+				row.userAnswers
+			)
 
 			return {
 				id: row.id,
 				createdAt: row.createdAt,
 				userName: row.userName,
 				trainingName: row.trainingName,
-				totalQuestions: questions.length,
-				correctCount,
-				incorrectCount: questions.length - correctCount
+				totalQuestions: evaluation.totalQuestions,
+				correctCount: evaluation.correctCount,
+				incorrectCount: evaluation.incorrectCount
 			}
 		})
 
@@ -223,8 +222,8 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 	}
 })
 
-// GET /training/submissions?testId= (get all submissions for a specific training)
-router.get("/submissions", getUserFromCookie, async (req: Request, res: Response, next) => {
+// GET /training/results?testId= (get all results for a specific training)
+router.get("/results", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const testId = req.query.testId as string
 
@@ -237,7 +236,6 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 			return
 		}
 
-		// Base query with common joins
 		let query = `
         SELECT s.id,
                s.created_at as "createdAt",
@@ -255,12 +253,10 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 
 		const params: string[] = [testId]
 
-		// Add role-specific conditions
 		if (Number(user.user_metadata.role) === UserRole.Employee) {
 			query += ` AND s.user_id = $2`
 			params.push(user.id)
 		} else {
-			// For Owners/Leaders - only their company's submissions
 			query += ` AND s.company_id = $2`
 			params.push(user.user_metadata.company_id)
 		}
@@ -270,9 +266,10 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 		const result = await postgres.query(query, params)
 
 		if (result.rows.length === 0) {
-			res.status(404).json({
-				status: "error",
-				message: "No submissions found for this training"
+			res.status(200).json({
+				status: "ignore",
+				message: "No submissions found for this training",
+				data: {}
 			} satisfies ApiResponse)
 			return
 		}
@@ -289,7 +286,6 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 			return
 		}
 
-		// Process submissions with full evaluation
 		const submissions = result.rows.map(row => {
 			const evaluation = evaluateSubmission(
 				row.trainingQuestions,
@@ -308,8 +304,7 @@ router.get("/submissions", getUserFromCookie, async (req: Request, res: Response
 					questionId: q.questionId,
 					questionName: q.questionName,
 					correct: q.correct,
-					userAnswer: q.userAnswer,
-					correctAnswers: q.correctAnswers
+					userAnswers: q.userAnswers
 				}))
 			}
 		})
@@ -330,7 +325,6 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 	const trainingId = req.params.testId
 
 	try {
-		// Get training data
 		const trainingResult = await postgres.query(`
         SELECT t.id,
                t.name,
@@ -354,7 +348,6 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 
 		const training = trainingResult.rows[0]
 
-		// Check permission
 		if (!hasPermission(user, "training", "view", {
 			companyId: training.companyId,
 			role: training.role
@@ -366,14 +359,12 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 			return
 		}
 
-		// Check if active
 		const activeResult = await postgres.query(
 			"SELECT 1 FROM in_progress WHERE user_id = $1 AND training_id = $2",
 			[user.id, trainingId]
 		)
 		const isActive = activeResult.rows.length > 0
 
-		// Format response based on activity status
 		if (isActive) {
 			const response = {
 				id: training.id,
@@ -383,8 +374,8 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 				questions: training.questions.map((q: any) => ({
 					id: q.id,
 					name: q.name,
-					answers: q.answers,
-					multipleCorrect: q.multipleCorrect
+					answers: q.answers.map((a: any) => a.text),
+					multipleCorrect: hasMultipleCorrect(q.answers)
 				})),
 				createdAt: training.createdAt
 			}
@@ -408,7 +399,6 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 				data: response
 			})
 		}
-
 	} catch (error) {
 		next(error)
 	}
@@ -491,12 +481,14 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 			return
 		}
 
-		// Process questions to match database format
+		// Process questions to match frontend format
 		const dbQuestions = questions.map(question => ({
 			id: crypto.randomUUID(),
 			name: question.name,
-			answers: question.answers.map(a => a.text),
-			correctAnswer: question.answers.findIndex(a => a.correct),
+			answers: question.answers.map(a => ({
+				text: a.text,
+				correct: a.correct
+			})),
 			multipleCorrect: question.answers.filter(a => a.correct).length > 1
 		}))
 
@@ -632,7 +624,6 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 	const trainingId = req.params.testId
 
 	try {
-		// Validate request body
 		const validation = trainingSubmissionSchema.safeParse(req.body)
 		if (!validation.success) {
 			res.status(400).json({
@@ -645,7 +636,6 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 
 		const { id, questions } = validation.data
 
-		// Get training data
 		const trainingResult = await postgres.query(`
         SELECT id, company_id, role, questions
         FROM training
@@ -662,7 +652,6 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 
 		const training = trainingResult.rows[0]
 
-		// Check permission
 		if (!hasPermission(user, "submission", "create", {
 			companyId: training.company_id,
 			role: training.role,
@@ -675,14 +664,11 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 			return
 		}
 
-		// Validate questions
-		const trainingQuestions = training.questions
 		const userAnswers: UserAnswer[] = questions.map(q => ({
 			id: q.id,
-			answer: q.answers.length === 1 ? q.answers[0] : q.answers
+			answers: q.answers
 		}))
 
-		// Create submission
 		await postgres.query(`
         INSERT INTO submission (id,
                                 user_id,
@@ -690,39 +676,18 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
                                 training_id,
                                 answers)
         VALUES ($1, $2, $3, $4, $5)
-		`, [id, user.id, training.company_id, trainingId, userAnswers])
+        `, [id, user.id, training.company_id, trainingId, userAnswers])
 
-		// Remove from in_progress
 		await postgres.query(`
         DELETE
         FROM in_progress
         WHERE user_id = $1
           AND training_id = $2
-		`, [user.id, trainingId])
-
-		// Evaluate and return results
-		const evaluation = evaluateSubmission(trainingQuestions, userAnswers)
-		const response = {
-			id,
-			name: user.user_metadata.name,
-			training: training.name,
-			score: {
-				totalQuestions: evaluation.totalQuestions,
-				correctCount: evaluation.correctCount,
-				incorrectCount: evaluation.incorrectCount,
-				questionEvaluations: evaluation.questionEvaluations.map(q => ({
-					questionId: q.questionId,
-					questionName: q.questionName,
-					userAnswer: q.userAnswer,
-					correct: q.correct
-				}))
-			},
-			submittedAt: new Date().toISOString()
-		}
+        `, [user.id, trainingId])
 
 		res.status(201).json({
 			status: "success",
-			data: response
+			message: "Submission created successfully"
 		})
 
 	} catch (error) {
