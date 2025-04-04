@@ -113,17 +113,16 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
         SELECT t.id,
                t.name,
                t.description,
-               t.created_at as "createdAt",
-               EXISTS (
-                   SELECT 1 FROM in_progress ip
-                   WHERE ip.user_id = $${user.user_metadata.role === UserRole.Employee ? '3' : '2'}
+               t.created_at                                                                                                                                                                                                                           as "createdAt",
+               EXISTS (SELECT 1
+                       FROM in_progress ip
+                       WHERE ip.user_id = $${user.user_metadata.role === UserRole.Employee ? "3" : "2"}
                    AND ip.training_id = t.id
                ) as "active",
                EXISTS (
                    SELECT 1 FROM submission s 
-                   WHERE s.user_id = $${user.user_metadata.role === UserRole.Employee ? '3' : '2'}
-                   AND s.training_id = t.id
-               ) as "completed"
+                   WHERE s.user_id = $${user.user_metadata.role === UserRole.Employee ? "3" : "2"}
+                   AND s.training_id = t.id) as "completed"
         FROM training t
         WHERE t.company_id = $1
             ${Number(user.user_metadata.role) === UserRole.Employee
@@ -527,7 +526,7 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
                              file_url,
                              company_id)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-			[name, description, role, dbQuestions, fileUrl, companyId]
+			[name, description, role, JSON.stringify(dbQuestions), fileUrl, companyId]
 		)
 
 		res.status(201).json({
@@ -676,14 +675,14 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
                                 training_id,
                                 answers)
         VALUES ($1, $2, $3, $4, $5)
-        `, [id, user.id, training.company_id, trainingId, userAnswers])
+		`, [id, user.id, training.company_id, trainingId, JSON.stringify(userAnswers)])
 
 		await postgres.query(`
         DELETE
         FROM in_progress
         WHERE user_id = $1
           AND training_id = $2
-        `, [user.id, trainingId])
+		`, [user.id, trainingId])
 
 		res.status(201).json({
 			status: "success",
