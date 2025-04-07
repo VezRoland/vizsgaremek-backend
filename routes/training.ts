@@ -115,7 +115,7 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
                t.description,
                t.created_at                                                                                                                                                                                                                           as "createdAt",
                EXISTS (SELECT 1
-                       FROM in_progress ip
+                       FROM training_in_progress ip
                        WHERE ip.user_id = $${user.user_metadata.role === UserRole.Employee ? "3" : "2"}
                    AND ip.training_id = t.id
                ) as "active",
@@ -161,7 +161,7 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 })
 
 // GET /training/results (get 10 most recent submissions with correctness counts)
-router.get("/results", getUserFromCookie, async (req: Request, res: Response, next) => {
+router.get("/results/recent", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 
 	try {
@@ -359,7 +359,7 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 		}
 
 		const activeResult = await postgres.query(
-			"SELECT 1 FROM in_progress WHERE user_id = $1 AND training_id = $2",
+			"SELECT 1 FROM training_in_progress WHERE user_id = $1 AND training_id = $2",
 			[user.id, trainingId]
 		)
 		const isActive = activeResult.rows.length > 0
@@ -388,7 +388,7 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 				id: training.id,
 				name: training.name,
 				description: training.description,
-				fileUrl: training.fileUrl,
+				fileUrl: training.fileUrl ? `${training.fileUrl}?download=true` : null,
 				isActive: false,
 				createdAt: training.createdAt
 			}
@@ -514,7 +514,9 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 
 			fileUrl = supabase.storage
 				.from("training-files")
-				.getPublicUrl(filePath).data.publicUrl
+				.getPublicUrl(filePath, {
+					download: true
+				}).data.publicUrl;
 		}
 
 		// Insert into database
@@ -578,7 +580,7 @@ router.post("/start/:testId", getUserFromCookie, async (req: Request, res: Respo
 
 		// Check if training is already active for this user
 		const activeCheck = await postgres.query(
-			"SELECT 1 FROM in_progress WHERE user_id = $1 AND training_id = $2",
+			"SELECT 1 FROM training_in_progress WHERE user_id = $1 AND training_id = $2",
 			[user.id, trainingId]
 		)
 
@@ -590,9 +592,9 @@ router.post("/start/:testId", getUserFromCookie, async (req: Request, res: Respo
 			return
 		}
 
-		// Add to in_progress table
+		// Add to training_in_progress table
 		await postgres.query(
-			"INSERT INTO in_progress (user_id, training_id) VALUES ($1, $2)",
+			"INSERT INTO training_in_progress (user_id, training_id) VALUES ($1, $2)",
 			[user.id, trainingId]
 		)
 
@@ -617,7 +619,6 @@ const trainingSubmissionSchema = object({
 	questions: array(trainingSubmissionQuestionSchema)
 })
 
-// POST /training/submission/:testId
 router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const trainingId = req.params.testId
@@ -673,20 +674,31 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
                                 user_id,
                                 company_id,
                                 training_id,
-                                answers)
-        VALUES ($1, $2, $3, $4, $5)
-		`, [id, user.id, training.company_id, trainingId, JSON.stringify(userAnswers)])
+                                answers,
+                                created_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (user_id, training_id)
+            DO UPDATE SET answers      = EXCLUDED.answers,
+                          created_at = NOW(),
+                          id           = EXCLUDED.id
+		`, [
+			id,
+			user.id,
+			training.company_id,
+			trainingId,
+			JSON.stringify(userAnswers)
+		])
 
 		await postgres.query(`
         DELETE
-        FROM in_progress
+        FROM training_in_progress
         WHERE user_id = $1
           AND training_id = $2
 		`, [user.id, trainingId])
 
 		res.status(201).json({
 			status: "success",
-			message: "Submission created successfully"
+			message: "Submission processed successfully"
 		})
 
 	} catch (error) {
