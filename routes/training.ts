@@ -328,12 +328,14 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 			return
 		}
 
-		let downloadUrl
-		if (training.file_url) {
+		let downloadUrl = null
+		if (training.fileUrl) {
 			try {
 				const { data, error } = await supabase.storage
 					.from("training-files")
-					.createSignedUrl(training.file_url, 3600)
+					.createSignedUrl(training.fileUrl, 3600, {
+						download: true
+					})
 
 				if (error) throw error
 				downloadUrl = data.signedUrl
@@ -486,7 +488,8 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 			const { error } = await supabase.storage
 				.from("training-files")
 				.upload(filePath, file.buffer, {
-					contentType: file.mimetype
+					contentType: file.mimetype,
+					upsert: true
 				})
 
 			if (error) {
@@ -642,25 +645,29 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 			answers: q.answers
 		}))
 
-		await postgres.query(`
-        INSERT INTO submission (id,
-                                user_id,
-                                company_id,
-                                training_id,
-                                answers,
-                                created_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
-        ON CONFLICT (user_id, training_id)
-            DO UPDATE SET answers    = EXCLUDED.answers,
-                          created_at = NOW(),
-                          id         = EXCLUDED.id
-		`, [
-			id,
-			user.id,
-			training.company_id,
-			trainingId,
-			JSON.stringify(userAnswers)
-		])
+		try {
+			await postgres.query(`
+          INSERT INTO submission (id,
+                                  user_id,
+                                  company_id,
+                                  training_id,
+                                  answers,
+                                  created_at)
+          VALUES ($1, $2, $3, $4, $5, NOW())
+          ON CONFLICT (user_id, training_id)
+              DO UPDATE SET answers    = EXCLUDED.answers,
+                            created_at = NOW(),
+                            id         = EXCLUDED.id
+			`, [
+				id,
+				user.id,
+				training.company_id,
+				trainingId,
+				JSON.stringify(userAnswers)
+			])
+		} catch (insertError: any) {
+			if (insertError.code !== "23505") throw insertError
+		}
 
 		await postgres.query(`
         DELETE
