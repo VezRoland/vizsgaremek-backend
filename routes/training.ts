@@ -160,111 +160,74 @@ router.get("/", getUserFromCookie, async (req: Request, res: Response, next) => 
 	}
 })
 
-// GET /training/results (get 10 most recent submissions with correctness counts)
-router.get("/results/recent", getUserFromCookie, async (req: Request, res: Response, next) => {
-	const user = req.user as User
-
-	try {
-		if (!hasPermission(user, "submission", "view", {
-			companyId: user.user_metadata.company_id,
-			role: Number(user.user_metadata.role),
-			userId: user.id
-		}) || Number(user.user_metadata.role) === UserRole.Employee) {
-			res.status(403).json({
-				status: "error",
-				message: "You don't have permission to view submissions."
-			} satisfies ApiResponse)
-			return
-		}
-
-		const query = `
-        SELECT s.id,
-               s.created_at as "createdAt",
-               u.name       as "userName",
-               t.name       as "trainingName",
-               t.questions  as "trainingQuestions",
-               s.answers    as "userAnswers"
-        FROM submission s
-                 JOIN "user" u ON s.user_id = u.id
-                 JOIN training t ON s.training_id = t.id
-        WHERE s.company_id = $1
-        ORDER BY s.created_at DESC
-        LIMIT 10
-		`
-
-		const result = await postgres.query(query, [user.user_metadata.company_id])
-
-		const submissions = result.rows.map(row => {
-			const evaluation = evaluateSubmission(
-				row.trainingQuestions,
-				row.userAnswers
-			)
-
-			return {
-				id: row.id,
-				createdAt: row.createdAt,
-				userName: row.userName,
-				trainingName: row.trainingName,
-				totalQuestions: evaluation.totalQuestions,
-				correctCount: evaluation.correctCount,
-				incorrectCount: evaluation.incorrectCount
-			}
-		})
-
-		res.status(200).json({
-			status: "ignore",
-			message: "Submissions fetched successfully!",
-			data: submissions
-		} satisfies ApiResponse)
-	} catch (error) {
-		next(error)
-	}
-})
-
-// GET /training/results?testId= (get all results for a specific training)
+// GET /training/results (with optional testId query parameter)
 router.get("/results", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const testId = req.query.testId as string
 
 	try {
-		if (!testId) {
-			res.status(400).json({
-				status: "error",
-				message: "testId query parameter is required"
-			} satisfies ApiResponse)
-			return
-		}
+		let query: string
+		let params: string[] = [user.user_metadata.company_id]
+		let isSpecificTest = false
 
-		let query = `
-        SELECT s.id,
-               s.created_at as "createdAt",
-               u.name       as "userName",
-               t.name       as "trainingName",
-               t.questions  as "trainingQuestions",
-               s.answers    as "userAnswers",
-               t.role       as "trainingRole",
-               t.company_id as "companyId"
-        FROM submission s
-                 JOIN "user" u ON s.user_id = u.id
-                 JOIN training t ON s.training_id = t.id
-        WHERE s.training_id = $1
-		`
+		if (testId) {
+			// Query for specific test results
+			isSpecificTest = true
+			query = `
+          SELECT s.id,
+                 s.created_at as "createdAt",
+                 u.name       as "userName",
+                 t.name       as "trainingName",
+                 t.questions  as "trainingQuestions",
+                 s.answers    as "userAnswers",
+                 t.role       as "trainingRole",
+                 t.company_id as "companyId"
+          FROM submission s
+                   JOIN "user" u ON s.user_id = u.id
+                   JOIN training t ON s.training_id = t.id
+          WHERE s.training_id = $1
+			`
+			params = [testId]
 
-		const params: string[] = [testId]
-
-		if (Number(user.user_metadata.role) === UserRole.Employee) {
-			query += ` AND s.user_id = $2`
-			params.push(user.id)
+			if (Number(user.user_metadata.role) === UserRole.Employee) {
+				query += ` AND s.user_id = $2`
+				params.push(user.id)
+			} else {
+				query += ` AND s.company_id = $2`
+				params.push(user.user_metadata.company_id)
+			}
 		} else {
-			query += ` AND s.company_id = $2`
-			params.push(user.user_metadata.company_id)
+			if (!hasPermission(user, "submission", "view", {
+				companyId: user.user_metadata.company_id,
+				role: Number(user.user_metadata.role),
+				userId: user.id
+			}) || Number(user.user_metadata.role) === UserRole.Employee) {
+				res.status(403).json({
+					status: "error",
+					message: "You don't have permission to view submissions."
+				} satisfies ApiResponse)
+				return
+			}
+			// Query for recent results (limit 10)
+			query = `
+          SELECT s.id,
+                 s.created_at as "createdAt",
+                 u.name       as "userName",
+                 t.name       as "trainingName",
+                 t.questions  as "trainingQuestions",
+                 s.answers    as "userAnswers"
+          FROM submission s
+                   JOIN "user" u ON s.user_id = u.id
+                   JOIN training t ON s.training_id = t.id
+          WHERE s.company_id = $1
+          ORDER BY s.created_at DESC
+          LIMIT 10
+			`
 		}
-
-		query += ` ORDER BY s.created_at DESC`
 
 		const result = await postgres.query(query, params)
 
-		if (result.rows.length === 0) {
+		if (isSpecificTest && result.rows.length === 0) {
 			res.status(200).json({
 				status: "ignore",
 				message: "No submissions found for this training",
@@ -273,7 +236,7 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 			return
 		}
 
-		if (!hasPermission(user, "submission", "view", {
+		if (isSpecificTest && !hasPermission(user, "submission", "view", {
 			companyId: result.rows[0].companyId,
 			role: Number(result.rows[0].trainingRole),
 			userId: user.id
@@ -291,21 +254,28 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 				row.userAnswers
 			)
 
-			return {
+			const baseSubmission = {
 				id: row.id,
 				createdAt: row.createdAt,
 				userName: row.userName,
 				trainingName: row.trainingName,
 				totalQuestions: evaluation.totalQuestions,
 				correctCount: evaluation.correctCount,
-				incorrectCount: evaluation.incorrectCount,
-				questionEvaluations: evaluation.questionEvaluations.map(q => ({
-					questionId: q.questionId,
-					questionName: q.questionName,
-					correct: q.correct,
-					userAnswers: q.userAnswers
-				}))
+				incorrectCount: evaluation.incorrectCount
 			}
+
+			if (isSpecificTest) {
+				return {
+					...baseSubmission,
+					questionEvaluations: evaluation.questionEvaluations.map(q => ({
+						questionId: q.questionId,
+						questionName: q.questionName,
+						correct: q.correct,
+						userAnswers: q.userAnswers
+					}))
+				}
+			}
+			return baseSubmission
 		})
 
 		res.status(200).json({
@@ -358,6 +328,21 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 			return
 		}
 
+		let downloadUrl
+		if (training.file_url) {
+			try {
+				const { data, error } = await supabase.storage
+					.from("training-files")
+					.createSignedUrl(training.file_url, 3600)
+
+				if (error) throw error
+				downloadUrl = data.signedUrl
+			} catch (err) {
+				console.error("Error generating signed URL:", err)
+				downloadUrl = null
+			}
+		}
+
 		const activeResult = await postgres.query(
 			"SELECT 1 FROM training_in_progress WHERE user_id = $1 AND training_id = $2",
 			[user.id, trainingId]
@@ -388,7 +373,7 @@ router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Respons
 				id: training.id,
 				name: training.name,
 				description: training.description,
-				fileUrl: training.fileUrl ? `${training.fileUrl}?download=true` : null,
+				fileUrl: downloadUrl,
 				isActive: false,
 				createdAt: training.createdAt
 			}
@@ -492,11 +477,11 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 		}))
 
 		// Upload file to Supabase if provided
-		let fileUrl = null
+		let filePath = null
 		if (file) {
 			const fileExt = file.originalname.split(".").pop()
 			const fileName = `${crypto.randomUUID()}.${fileExt}`
-			const filePath = `trainings/${companyId}/${fileName}`
+			filePath = `trainings/${companyId}/${fileName}`
 
 			const { error } = await supabase.storage
 				.from("training-files")
@@ -511,24 +496,12 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 				})
 				return
 			}
-
-			fileUrl = supabase.storage
-				.from("training-files")
-				.getPublicUrl(filePath, {
-					download: true
-				}).data.publicUrl;
 		}
 
-		// Insert into database
 		await postgres.query(
-			`INSERT INTO training (name,
-                             description,
-                             role,
-                             questions,
-                             file_url,
-                             company_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-			[name, description, role, JSON.stringify(dbQuestions), fileUrl, companyId]
+			`INSERT INTO training (name, description, role, questions, file_url, company_id)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+			[name, description, role, JSON.stringify(dbQuestions), filePath, companyId]
 		)
 
 		res.status(201).json({
@@ -678,9 +651,9 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
                                 created_at)
         VALUES ($1, $2, $3, $4, $5, NOW())
         ON CONFLICT (user_id, training_id)
-            DO UPDATE SET answers      = EXCLUDED.answers,
+            DO UPDATE SET answers    = EXCLUDED.answers,
                           created_at = NOW(),
-                          id           = EXCLUDED.id
+                          id         = EXCLUDED.id
 		`, [
 			id,
 			user.id,
