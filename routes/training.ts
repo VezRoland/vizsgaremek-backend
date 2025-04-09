@@ -181,7 +181,8 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
                  t.questions  as "trainingQuestions",
                  s.answers    as "userAnswers",
                  t.role       as "trainingRole",
-                 t.company_id as "companyId"
+                 t.company_id as "companyId",
+                 s.created_at as "createdAt"
           FROM submission s
                    JOIN "user" u ON s.user_id = u.id
                    JOIN training t ON s.training_id = t.id
@@ -215,7 +216,8 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
                  u.name       as "userName",
                  t.name       as "trainingName",
                  t.questions  as "trainingQuestions",
-                 s.answers    as "userAnswers"
+                 s.answers    as "userAnswers",
+                 s.created_at as "createdAt"
           FROM submission s
                    JOIN "user" u ON s.user_id = u.id
                    JOIN training t ON s.training_id = t.id
@@ -254,28 +256,39 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 				row.userAnswers
 			)
 
-			const baseSubmission = {
+			const baseResult: TrainingResult = {
 				id: row.id,
-				createdAt: row.createdAt,
 				userName: row.userName,
 				trainingName: row.trainingName,
 				totalQuestions: evaluation.totalQuestions,
 				correctCount: evaluation.correctCount,
-				incorrectCount: evaluation.incorrectCount
+				incorrectCount: evaluation.incorrectCount,
+				createdAt: row.createdAt
 			}
 
 			if (isSpecificTest) {
+				const questionEvaluations: TrainingQuestionEvaluation[] = row.trainingQuestions.map((question: Question) => {
+					const userAnswer = row.userAnswers.find((ua: UserAnswer) => ua.id === question.id)
+					const selectedAnswers = userAnswer?.answers || []
+
+					return {
+						id: question.id,
+						name: question.name,
+						multipleCorrect: hasMultipleCorrect(question.answers),
+						answers: question.answers.map(answer => ({
+							name: answer.text,
+							selectedByUser: selectedAnswers.includes(answer.text),
+							correct: answer.correct
+						}))
+					}
+				})
+
 				return {
-					...baseSubmission,
-					questionEvaluations: evaluation.questionEvaluations.map(q => ({
-						questionId: q.questionId,
-						questionName: q.questionName,
-						correct: q.correct,
-						userAnswers: q.userAnswers
-					}))
+					...baseResult,
+					questionEvaluations
 				}
 			}
-			return baseSubmission
+			return baseResult
 		})
 
 		res.status(200).json({
@@ -287,6 +300,30 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 		next(error)
 	}
 })
+
+// Add these interfaces to match frontend expectations
+interface TrainingResult {
+	id: string;
+	userName: string;
+	trainingName: string;
+	questionEvaluations?: TrainingQuestionEvaluation[];
+	totalQuestions: number;
+	incorrectCount: number;
+	correctCount: number;
+	createdAt: string;
+}
+
+interface TrainingQuestionEvaluation {
+	id: string;
+	name: string;
+	answers: {
+		id: string;
+		name: string;
+		selectedByUser: boolean;
+		correct: boolean;
+	}[];
+	multipleCorrect: boolean;
+}
 
 // GET /training/test/:testId
 router.get("/test/:testId", getUserFromCookie, async (req: Request, res: Response, next) => {
@@ -478,11 +515,21 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 			multipleCorrect: question.answers.filter(a => a.correct).length > 1
 		}))
 
+		const trainingId = crypto.randomUUID()
+
 		// Upload file to Supabase if provided
 		let filePath = null
 		if (file) {
 			const fileExt = file.originalname.split(".").pop()
-			const fileName = `${crypto.randomUUID()}.${fileExt}`
+
+			// Sanitize the training name for filename
+			const sanitizedName = name
+				.toLowerCase()
+				.replace(/[^a-z0-9]/g, "-")  // Replace special chars with hyphens
+				.replace(/-+/g, "-")         // Remove consecutive hyphens
+				.replace(/^-|-$/g, "")      // Remove leading/trailing hyphens
+
+			const fileName = `${sanitizedName}_${trainingId}.${fileExt}`
 			filePath = `trainings/${companyId}/${fileName}`
 
 			const { error } = await supabase.storage
@@ -502,9 +549,9 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 		}
 
 		await postgres.query(
-			`INSERT INTO training (name, description, role, questions, file_url, company_id)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-			[name, description, role, JSON.stringify(dbQuestions), filePath, companyId]
+			`INSERT INTO training (id, name, description, role, questions, file_url, company_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
+			[trainingId, name, description, role, JSON.stringify(dbQuestions), filePath, companyId]
 		)
 
 		res.status(201).json({
