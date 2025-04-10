@@ -12,7 +12,7 @@ import type { ApiResponse } from "./types/response"
 import type { signUpEmployeeSchema } from "./schemas/auth"
 
 const PORT = process.env.PORT || 3000
-const ORIGIN = "http://localhost:5173"
+const ORIGIN = process.env.ORIGIN_URL
 
 const app = express()
 app.use(cors({ credentials: true, origin: ORIGIN }))
