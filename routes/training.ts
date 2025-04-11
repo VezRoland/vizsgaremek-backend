@@ -691,22 +691,19 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 			id: q.id,
 			answers: q.answers
 		}))
-
 		try {
 			await postgres.query(`
-          INSERT INTO submission (id,
-                                  user_id,
+          INSERT INTO submission (user_id,
                                   company_id,
                                   training_id,
                                   answers,
                                   created_at)
-          VALUES ($1, $2, $3, $4, $5, NOW())
+          VALUES ($1, $2, $3, $4, NOW())
           ON CONFLICT (user_id, training_id)
               DO UPDATE SET answers    = EXCLUDED.answers,
                             created_at = NOW(),
                             id         = EXCLUDED.id
 			`, [
-				id,
 				user.id,
 				training.company_id,
 				trainingId,
@@ -715,7 +712,6 @@ router.post("/submission/:testId", getUserFromCookie, async (req: Request, res: 
 		} catch (insertError: any) {
 			if (insertError.code !== "23505") throw insertError
 		}
-
 		await postgres.query(`
         DELETE
         FROM training_in_progress
