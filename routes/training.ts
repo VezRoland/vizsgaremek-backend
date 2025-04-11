@@ -233,7 +233,7 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 			res.status(200).json({
 				status: "ignore",
 				message: "No submissions found for this training",
-				data: {}
+				data: []
 			} satisfies ApiResponse)
 			return
 		}
