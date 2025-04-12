@@ -1,40 +1,37 @@
 import { supabase } from "./supabase"
-import type { NextFunction, Request, Response } from "express"
+import { object, string } from "zod"
 
+import type { NextFunction, Request, Response } from "express"
 import type { ApiResponse } from "../types/response"
 
-export const getUserFromCookie = async (
-	request: Request,
-	response: Response,
+export async function getUserFromCookie(
+	req: Request,
+	res: Response,
 	next: NextFunction
-) => {
-	const authCookie = Object.entries<string>(request.cookies || {})
-		.find(([name]) => name === `sb-${process.env.SUPABASE_ID}-auth-token`)
-		?.at(1)
-	if (!authCookie) {
-		response.status(401).json({
-			status: "error",
-			message: "You are not logged in. Sign into your account!"
-		} satisfies ApiResponse)
-		return
+) {
+	const parsedCookie = object({ auth: string().min(1) }).safeParse(req.cookies)
+
+	if (!parsedCookie.success || !parsedCookie.data || parsedCookie.error) {
+		return next(
+			res.status(401).json({
+				status: "error",
+				message: "You are not signed in."
+			} satisfies ApiResponse)
+		)
 	}
 
-	const accessToken = JSON.parse(
-		atob(authCookie.replace("base64-", ""))
-	).access_token
+	const user = await supabase.auth.getUser(parsedCookie.data.auth)
 
-	const { data, error } = await supabase.auth.getUser(accessToken)
-	if (error) {
-		if (error.code !== "no_authorization") return next(error)
-
-		response.status(401).json({
-			status: "error",
-			message: "You are not logged in. Sign into your account!"
-		} satisfies ApiResponse)
-
-		return
+	if (user.error) {
+		return next(
+			res.status(401).json({
+				status: "error",
+				message: "You are not signed in."
+			} satisfies ApiResponse)
+		)
 	}
 
-	request.user = data.user
-	next()
+	req.user = user.data.user
+	req.token = parsedCookie.data.auth
+	return next()
 }
