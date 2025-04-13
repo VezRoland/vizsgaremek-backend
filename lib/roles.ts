@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js"
-import { UserRole, type Ticket, type Schedule } from "../types/database"
+import { type Schedule, type Submission, type Ticket, type Training, UserRole } from "../types/database"
 
 type PermissionCheck<Key extends keyof Permissions> =
 	| boolean
@@ -21,6 +21,14 @@ type Permissions = {
 	schedule:  {
 		dataType: Pick<Schedule, "userId" | "companyId" | "finalized">,
 		action: "view" | "create" | "finalize" | "delete" | "update"
+	},
+	training: {
+		dataType: Pick<Training, "companyId" | "role">,
+		action: "view" | "create" | "delete" | "update"
+	},
+	submission: {
+		dataType: Pick<Submission, "companyId" | "role" | "userId">,
+		action: "view" | "create"
 	}
 }
 
@@ -39,6 +47,16 @@ const ROLES = {
 			finalize: false, // Admins cannot finalize
 			delete: false, // Admins cannot delete schedules
 			update: false, // Admins cannot update schedules
+		},
+		training: {
+			view: false, // Admins cannot view training
+			create: false, // Admins cannot create training
+			delete: false, // Admins cannot delete training
+			update: false, // Admins cannot update training
+		},
+		submission: {
+			view: false, // Admins cannot view submissions
+			create: false, // Admins cannot create submissions
 		}
 	},
 	[UserRole.Owner]: {
@@ -55,6 +73,16 @@ const ROLES = {
 			finalize: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only finalize schedules in their company
 			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only delete schedules in their company
 			update: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only update schedules in their company
+		},
+		training: {
+			view: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only view training in their company
+			create: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only create training in their company
+			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only delete training in their company
+			update: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only update training in their company
+		},
+		submission: {
+			view: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only view submissions in their company
+			create: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only create submissions in their company
 		}
 	},
 	[UserRole.Leader]: {
@@ -71,6 +99,16 @@ const ROLES = {
 			finalize: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only finalize schedules in their company
 			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only delete schedules in their company
 			update: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only update schedules in their company
+		},
+		training: {
+			view: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only view training in their company
+			create: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only create training in their company
+			delete: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only delete training in their company
+			update: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only update training in their company
+		},
+		submission: {
+			view: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only view submissions in their company
+			create: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only create submissions in their company
 		}
 	},
 	[UserRole.Employee]: {
@@ -87,6 +125,16 @@ const ROLES = {
 			finalize: false, // Employees cannot finalize schedules
 			delete: (user, data) => user.id === data.userId && !data.finalized, // Employees can only delete their own schedules
 			update: (user, data) => user.id === data.userId && !data.finalized, // Employees can only update their own schedules
+		},
+		training: {
+			view: (user, data) => user.user_metadata.company_id === data.companyId && data.role === UserRole.Employee, // Employees can only view training in their company
+			create: false, // Employees cannot create training
+			delete: false, // Employees cannot delete training
+			update: false, // Employees cannot update training
+		},
+		submission: {
+			view: (user, data) => user.id === data.userId, // Employees can only view their own submissions
+			create: (user, data) => user.user_metadata.company_id === data.companyId && data.role === UserRole.Employee, // Employees can only create submissions in their company
 		}
 	}
 } as const satisfies RolesWithPermissions
