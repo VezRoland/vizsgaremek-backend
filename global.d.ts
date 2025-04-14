@@ -7,7 +7,7 @@ declare module "@supabase/supabase-js" {
 		age?: number
 		hourly_wage?: number
 		role: UserRole
-		company_id: string
+		company_id: string | null
 		verified: boolean
 		created_at: string
 	}
