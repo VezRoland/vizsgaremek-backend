@@ -4,7 +4,7 @@ export interface User {
 	age?: number
 	hourly_wage?: number
 	role: UserRole
-	company_id: string
+	company_id: string | null
 	verified: boolean
 	created_at: string
 }
@@ -22,7 +22,7 @@ export interface Ticket {
 	content: string
 	closed: boolean
 	userId: string
-	companyId: string
+	companyId: string | null
 	created_at: string
 }
 
@@ -32,7 +32,7 @@ export interface Schedule {
 	end: string
 	category: ScheduleCategory
 	userId: string
-	companyId: string
+	companyId: string | null
 	finalized: boolean
 }
 
@@ -47,7 +47,7 @@ export interface Training {
 	description: string;
 	isActive: boolean;
 	role: UserRole;
-	companyId: string;
+	companyId: string | null;
 	created_at: string;
 	questions: Array<{
 		id: string;
@@ -61,7 +61,7 @@ export interface Submission {
 	id: string;
 	userId: string;
 	trainingId: string;
-	companyId: string;
+	companyId: string | null;
 	role: UserRole;
 	created_at: string;
 	answers: Array<{

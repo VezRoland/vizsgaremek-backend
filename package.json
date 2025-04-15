@@ -3,7 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch index.ts"
+    "dev": "bun run --watch index.ts",
+    "test": "vitest run tests/",
+    "test:reset": "supabase db reset --local && vitest run"
   },
   "devDependencies": {
     "@types/bun": "^1.2.9",
@@ -12,7 +14,11 @@
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.14.0",
-    "@types/pg": "^8.11.11"
+    "@types/pg": "^8.11.11",
+    "@types/supertest": "^6.0.3",
+    "dotenv": "^16.5.0",
+    "supertest": "^7.1.0",
+    "vitest": "^3.1.1"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

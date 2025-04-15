@@ -167,7 +167,7 @@ router.get("/results", getUserFromCookie, async (req: Request, res: Response, ne
 
 	try {
 		let query: string
-		let params: string[] = [user.user_metadata.company_id]
+		let params: (string | null)[] = [user.user_metadata.company_id]
 		let isSpecificTest = false
 
 		if (testId) {

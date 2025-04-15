@@ -192,7 +192,7 @@ const fetchSchedulesForWeek = async (startOfWeek: Date, endOfWeek: Date, user: U
 }
 
 // Format the schedule response
-const formatScheduleResponse = async (startOfWeek: Date, schedules: Schedule[], companyId: string) => {
+const formatScheduleResponse = async (startOfWeek: Date, schedules: Schedule[], companyId: string | null) => {
 	const scheduleCounts: Record<string, number> = {}
 
 	schedules.forEach(schedule => {
@@ -701,7 +701,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
 		// Base conditions
 		const conditions = [`u.company_id = $1`]
-		const baseParams: (string | number)[] = [user.user_metadata.company_id]
+		const baseParams: (string | null)[] = [user.user_metadata.company_id]
 
 		if (name) {
 			conditions.push(`u.name ILIKE $2`)
