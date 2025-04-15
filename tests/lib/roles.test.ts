@@ -1,22 +1,7 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect } from "vitest"
 import { hasPermission } from "../../lib/roles"
 import { UserRole } from "../../types/database"
-import type { User } from "@supabase/supabase-js"
-
-// Mock User object generator
-const createMockUser = (role: UserRole, userId: string, companyId: string | null): User => ({
-	id: userId,
-	app_metadata: {},
-	user_metadata: {
-		role: role,
-		company_id: companyId,
-		name: "Test User",
-		verified: true,
-		created_at: new Date().toISOString()
-	},
-	aud: "authenticated",
-	created_at: new Date().toISOString()
-})
+import { createMockUser } from "../utility/testUtils"
 
 describe("hasPermission Function", () => {
 	const ownerId = "owner-uuid"
