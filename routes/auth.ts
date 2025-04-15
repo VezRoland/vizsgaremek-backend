@@ -10,16 +10,21 @@ import {
 } from "../schemas/auth"
 
 import type { CookieOptions, NextFunction, Response } from "express"
-import type { ApiResponse } from "../types/response"
 import { AuthApiError } from "@supabase/supabase-js"
 import { UserRole, type User } from "../types/database"
+import type { ApiResponse } from "../types/response"
 
 const router = Router()
-const COOKIE_OPTIONS: CookieOptions = {
+
+export const COOKIE_OPTIONS: CookieOptions = {
 	httpOnly: true,
 	secure: true,
-	sameSite: "none",
-	maxAge: 60 * 60 * 1000
+	sameSite: "none"
+}
+
+export const REFRESH_COOKIE_OPTIONS: CookieOptions = {
+	...COOKIE_OPTIONS,
+	maxAge: 7 * 24 * 60 * 60 * 1000
 }
 
 async function getCompanyIdByCode(
@@ -101,7 +106,15 @@ router.post("/sign-in", async (req, res, next) => {
 		return next(authResponse.error)
 	}
 
-	res.cookie("auth", authResponse.data.session.access_token, COOKIE_OPTIONS)
+	res.cookie("auth", authResponse.data.session.access_token, {
+		...COOKIE_OPTIONS,
+		maxAge: (authResponse.data.session.expires_in - 10) * 1000
+	})
+	res.cookie(
+		"refresh",
+		authResponse.data.session.refresh_token,
+		REFRESH_COOKIE_OPTIONS
+	)
 	res.json({
 		status: "success",
 		message: "Signed in successfully."
@@ -248,7 +261,8 @@ router.post("/sign-out", getUserFromCookie, async (req, res, next) => {
 		return next(authResponse.error)
 	}
 
-	res.clearCookie("auth", COOKIE_OPTIONS)
+	res.clearCookie("auth")
+	res.clearCookie("refresh")
 	res.json({
 		status: "success",
 		message: "Signed out successfully."
