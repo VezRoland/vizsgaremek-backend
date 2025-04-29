@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run --watch index.ts",
     "test": "vitest run tests/",
-    "test:reset": "supabase db reset --local && vitest run"
+    "test:reset": "supabase db reset --local && vitest run -c vitest.config.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.2.9",

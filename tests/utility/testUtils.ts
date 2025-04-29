@@ -6,6 +6,7 @@ export const MOCK_EMPLOYEE_ID = "f0744a3b-71d4-4d96-9e70-b2f3d4acb727"
 export const MOCK_COMPANY_ID = "1504096a-8db2-40f2-8a65-8b342adb7dd8"
 export const MOCK_LEADER_ID = "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d"
 export const MOCK_UNDER18_EMPLOYEE_ID = "e5b1c4d0-a2b3-4c5d-8e6f-7a8b9c0d1e2f"
+export const MOCK_ADMIN_ID = "a1b2c3d4-e5f6-4a5b-8c6d-9a8b7c6d5e4f"
 
 export const createMockUser = (role: UserRole, userId: string, companyId: string | null): User => ({
 	id: userId,
@@ -28,3 +29,4 @@ export const createMockUser = (role: UserRole, userId: string, companyId: string
 export const mockOwnerUser = createMockUser(UserRole.Owner, MOCK_OWNER_ID, MOCK_COMPANY_ID)
 export const mockEmployeeUser = createMockUser(UserRole.Employee, MOCK_EMPLOYEE_ID, MOCK_COMPANY_ID)
 export const mockLeaderUser = createMockUser(UserRole.Leader, MOCK_LEADER_ID, MOCK_COMPANY_ID)
+export const mockAdminUser = createMockUser(UserRole.Admin, MOCK_ADMIN_ID, null)

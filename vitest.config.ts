@@ -8,6 +8,7 @@ export default defineConfig({
 			"./tests/loadEnv.ts",
 			"./tests/setup.ts"
 		],
-		include: ["tests/**/*.test.ts"]
+		include: ["tests/**/*.test.ts"],
+		fileParallelism: false
 	}
 })

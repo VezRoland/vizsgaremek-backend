@@ -1,5 +1,5 @@
 import { vi } from "vitest"
-import { mockOwnerUser, mockEmployeeUser, mockLeaderUser } from "./utility/testUtils" // <-- Import mockLeaderUser
+import { mockOwnerUser, mockEmployeeUser, mockLeaderUser, mockAdminUser } from "./utility/testUtils"
 
 // --- Global Supabase Client Mock ---
 vi.mock("../lib/supabase", () => {
@@ -20,7 +20,9 @@ vi.mock("../lib/supabase", () => {
 		if (token === "TEST_LEADER_TOKEN") {
 			return { data: { user: mockLeaderUser }, error: null }
 		}
-
+		if (token === "TEST_ADMIN_TOKEN") {
+			return { data: { user: mockAdminUser }, error: null }
+		}
 		// Default fallback for any other token
 		return { data: { user: null }, error: { message: "Mock: Invalid token", status: 401 } }
 	})
