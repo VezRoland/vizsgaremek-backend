@@ -20,18 +20,21 @@ export async function getUserFromCookie(
 		)
 	}
 
-	const user = await supabase.auth.getUser(parsedCookie.data.auth)
+	const accessToken = parsedCookie.data.auth
 
-	if (user.error) {
+	const { data: { user }, error } = await supabase.auth.getUser(accessToken)
+
+	if (error || !user) {
+		console.error("Original Supabase getUser error or no user:", error)
 		return next(
 			res.status(401).json({
 				status: "error",
-				message: "You are not signed in."
+				message: error?.message || "You are not signed in."
 			} satisfies ApiResponse)
 		)
 	}
 
-	req.user = user.data.user
-	req.token = parsedCookie.data.auth
+	req.user = user
+	req.token = accessToken
 	return next()
 }

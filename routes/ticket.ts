@@ -148,7 +148,7 @@ router.get("/all", getUserFromCookie, async (req: Request, res: Response, next) 
 		}
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Tickets fetched successfully!",
 			data: result.rows
 		} satisfies ApiResponse)
@@ -179,7 +179,7 @@ router.get("/:id", getUserFromCookie, async (req: Request, res: Response, next) 
 		}
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Ticket fetched successfully!",
 			data: {
 				...ticket,
@@ -307,7 +307,7 @@ router.get("/:id/responses", getUserFromCookie, async (req: Request, res: Respon
 		const responses = await fetchTicketResponses(ticketId)
 
 		res.json({
-			status: "success",
+			status: "ignore",
 			message: "Ticket responses fetched successfully!",
 			data: responses
 		} satisfies ApiResponse)

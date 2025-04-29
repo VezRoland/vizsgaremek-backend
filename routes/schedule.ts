@@ -58,14 +58,15 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
 	// Base query without exclusion
 	let query = `
       SELECT EXISTS(
-                 SELECT 1 FROM schedule
+                 SELECT 1
+                 FROM schedule
                  WHERE user_id = $1
                    AND (
                      (start <= $2 AND $3 <= "end") OR
                      (start <= $4 AND $5 <= "end") OR
                      ($2 <= start AND "end" <= $4)
                      ) -- Not an error, ignore
-	`;
+	`
 
 	const params: any[] = [
 		userId,
@@ -73,19 +74,19 @@ const hasOverlappingSchedules = async (userId: string, start: Date, end: Date, e
 		start.toISOString(),
 		end.toISOString(),
 		end.toISOString()
-	];
+	]
 
 	// Add exclusion if needed
 	if (excludeScheduleId) {
-		query += ` AND id != $${params.length + 1}`;
-		params.push(excludeScheduleId);
+		query += ` AND id != $${params.length + 1}`
+		params.push(excludeScheduleId)
 	}
 
-	query += `)`;
+	query += `)`
 
-	const result = await postgres.query(query, params);
-	return result.rows[0].exists;
-};
+	const result = await postgres.query(query, params)
+	return result.rows[0].exists
+}
 
 const isWithinHalfYear = (date: Date): boolean => {
 	const now = new Date()
@@ -270,18 +271,18 @@ const parseWeekStartParam = (weekStart: unknown): Date | { error: ApiResponse } 
 // Utility function to check if a time falls within the restricted hours for users under 18
 const isRestrictedTime = (start: Date, end: Date): boolean => {
 	// Convert to Amsterdam time (handles both CET and CEST automatically)
-	const amsterdamStart = new Date(start.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
-	const amsterdamEnd = new Date(end.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
+	const amsterdamStart = new Date(start.toLocaleString("en-US", { timeZone: "Europe/Amsterdam" }))
+	const amsterdamEnd = new Date(end.toLocaleString("en-US", { timeZone: "Europe/Amsterdam" }))
 
-	const startHour = amsterdamStart.getHours();
-	const endHour = amsterdamEnd.getHours();
+	const startHour = amsterdamStart.getHours()
+	const endHour = amsterdamEnd.getHours()
 
 	// Restricted hours are 22:00-06:00 Amsterdam time (regardless of DST)
-	const isStartRestricted = startHour >= 22 || startHour < 6;
-	const isEndRestricted = endHour > 22 || endHour <= 6;
-	const spansNight = startHour < 6 && endHour >= 22;
+	const isStartRestricted = startHour >= 22 || startHour < 6
+	const isEndRestricted = endHour > 22 || endHour <= 6
+	const spansNight = startHour < 6 && endHour >= 22
 
-	return isStartRestricted || isEndRestricted || spansNight;
+	return isStartRestricted || isEndRestricted || spansNight
 }
 
 // Utility function to validate schedule constraints for a user
@@ -636,6 +637,32 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 
 		for (const userId of userIds) {
 			try {
+				if (!hasPermission(creator, "schedule", "create", { userId: userId, companyId: companyId, finalized: false })) {
+					throw {
+						message: `User ${creator.id} does not have permission to create a schedule for user ${userId} based on base rules.`,
+						code: 403
+					}
+				}
+
+				if (creator.user_metadata.role === UserRole.Leader) {
+					const targetUserResult = await postgres.query(
+						"SELECT role FROM \"user\" WHERE id = $1 AND company_id = $2",
+						[userId, companyId]
+					)
+
+					if (targetUserResult.rows.length === 0) {
+						throw { message: `Target user ${userId} not found in company ${companyId}.`, code: 404 }
+					}
+					const targetUserRole = targetUserResult.rows[0].role as UserRole
+
+					// Explicitly prevent Leader from creating schedule for Owner
+					if (targetUserRole === UserRole.Owner) {
+						throw { message: `Leaders cannot create schedules for Owners.`, code: 403 }
+					}
+					// Implicitly allows creating for self (Leader), other Leaders, and Employees
+				}
+
+
 				await validateScheduleConstraints(userId, new Date(start), new Date(end))
 
 				const insertQuery = `
@@ -653,24 +680,42 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 			} catch (error: any) {
 				errors.push({
 					userId: userId,
-					message: error.message,
+					message: error.message || "Failed to create schedule for user.",
 					code: error.code || 500
 				})
 			}
 		}
 
-		if (errors.length > 0) {
-			console.log(errors)
+		if (errors.some(e => e.code === 403)) {
+			res.status(403).json({
+				status: "error",
+				message: "Permission denied to create schedule for one or more users.",
+				data: errors
+			} satisfies ApiResponse)
+			return
+		} else if (errors.length > 0 && errors.length === userIds.length) {
+			// All failed for other reasons (like constraints)
+			res.status(400).json({
+				status: "error",
+				message: "Failed to create schedules due to constraints or other errors.",
+				data: errors
+			} satisfies ApiResponse)
+			return
+		} else if (errors.length > 0) {
+			// Partial success
 			res.status(207).json({
 				status: "error",
 				message: "Some schedules could not be created.",
 				data: errors
 			} satisfies ApiResponse)
+			return
 		} else {
+			// Full success
 			res.status(201).json({
 				status: "success",
 				message: "All schedules created successfully!"
 			} satisfies ApiResponse)
+			return
 		}
 	} catch (error) {
 		next(error)
@@ -681,6 +726,14 @@ router.post("/", getUserFromCookie, async (req: Request, res: Response, next) =>
 router.get("/users", getUserFromCookie, async (req: Request, res: Response, next) => {
 	const user = req.user as User
 	const { name } = req.query
+
+	if (user.user_metadata.role === UserRole.Employee) {
+		res.status(403).json({
+			status: "error",
+			message: "You do not have permission to view users' data."
+		} satisfies ApiResponse)
+		return
+	}
 
 	const limit = req.query.limit ? Number(req.query.limit) : 20
 	const page = req.query.page ? Number(req.query.page) : 1
@@ -725,20 +778,20 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 		// If no users found, return empty result
 		if (paginatedUserIds.rows.length === 0) {
 			res.status(200)
-				.set('Cache-Control', 'private, max-age=300')
+				.set("Cache-Control", "private, max-age=300")
 				.json({
-				status: "ignore",
-				message: "No users found",
-				data: {
-					users: [],
-					pagination: {
-						totalPages: 0,
-						currentPage: page,
-						limit,
-						totalItems: 0
+					status: "ignore",
+					message: "No users found",
+					data: {
+						users: [],
+						pagination: {
+							totalPages: 0,
+							currentPage: page,
+							limit,
+							totalItems: 0
+						}
 					}
-				}
-			} satisfies ApiResponse)
+				} satisfies ApiResponse)
 			return
 		}
 
@@ -790,20 +843,20 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 		})
 
 		res.status(200)
-			.set('Cache-Control', 'private, max-age=300')
+			.set("Cache-Control", "private, max-age=300")
 			.json({
-			status: "ignore",
-			message: "Users' data fetched successfully!",
-			data: {
-				users: Object.values(users),
-				pagination: {
-					totalPages,
-					currentPage: page,
-					limit,
-					totalItems: totalUsers
+				status: "ignore",
+				message: "Users' data fetched successfully!",
+				data: {
+					users: Object.values(users),
+					pagination: {
+						totalPages,
+						currentPage: page,
+						limit,
+						totalItems: totalUsers
+					}
 				}
-			}
-		} satisfies ApiResponse)
+			} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
 	}
@@ -881,72 +934,81 @@ router.delete("/", getUserFromCookie, async (req: Request, res: Response, next) 
 		}
 
 		const { scheduleIds } = validation.data
-
 		const errors: Array<{ scheduleId: string; message: string; code: number }> = []
+		const idsToDelete: string[] = []
 
-		const fetchSchedulesQuery = `
-        SELECT id, finalized
-        FROM schedule
-        WHERE id = ANY ($1)
-		`
+		// Fetch schedules to check permissions
+		const fetchSchedulesQuery = `SELECT id, user_id, company_id, finalized
+                                 FROM schedule
+                                 WHERE id = ANY ($1)`
 		const fetchSchedulesResult = await postgres.query(fetchSchedulesQuery, [scheduleIds])
+		const foundSchedulesMap = new Map(fetchSchedulesResult.rows.map(s => [s.id, s]))
 
-		const existingScheduleIds = fetchSchedulesResult.rows.map(row => row.id)
-		const missingScheduleIds = scheduleIds.filter(id => !existingScheduleIds.includes(id))
-		if (missingScheduleIds.length > 0) {
-			for (const missingId of missingScheduleIds) {
+		// Check permissions for each requested ID
+		for (const requestedId of scheduleIds) {
+			const schedule = foundSchedulesMap.get(requestedId)
+			if (!schedule) {
+				errors.push({ scheduleId: requestedId, message: "Schedule not found.", code: 404 })
+				continue
+			}
+
+			// Check delete permission using the specific schedule's details
+			if (!hasPermission(user, "schedule", "delete", {
+				userId: schedule.user_id,
+				companyId: schedule.company_id,
+				finalized: schedule.finalized
+			})) {
 				errors.push({
-					scheduleId: missingId,
-					message: "Schedule not found.",
-					code: 404
+					scheduleId: requestedId,
+					message: schedule.finalized
+						? "Permission denied to delete finalized schedule."
+						: "Permission denied to delete this schedule.",
+					code: 403
 				})
+			} else {
+				idsToDelete.push(requestedId)
 			}
 		}
 
-		for (const schedule of fetchSchedulesResult.rows) {
-			if (schedule.finalized && !hasPermission(user, "schedule", "delete", {
-				userId: user.id,
-				companyId: user.user_metadata.company_id,
-				finalized: true
-			})) {
-				errors.push({
-					scheduleId: schedule.id,
-					message: "You do not have permission to delete a finalized schedule.",
-					code: 403
-				})
-			} else if (!hasPermission(user, "schedule", "delete", {
-				userId: user.id,
-				companyId: user.user_metadata.company_id,
-				finalized: false
-			})) {
-				errors.push({
-					scheduleId: schedule.id,
-					message: "You do not have permission to delete this schedule.",
-					code: 403
-				})
-			}
+		// --- Execute DELETE only for permitted IDs ---
+		if (idsToDelete.length > 0) {
+			const deleteQuery = `DELETE
+                           FROM schedule
+                           WHERE id = ANY ($1)`
+			await postgres.query(deleteQuery, [idsToDelete])
 		}
 
-		if (errors.length > 0) {
+		if (errors.length > 0 && idsToDelete.length === 0) {
+			// All requested items resulted in errors, nothing deleted
+			res.status(errors.some(e => e.code === 403) ? 403 : 404).json({
+				status: "error",
+				message: "Could not delete any of the specified schedules due to permissions or not found.",
+				data: errors
+			} satisfies ApiResponse)
+			return
+		} else if (errors.length > 0 && idsToDelete.length > 0) {
+			// Partial failure/success
 			res.status(207).json({
 				status: "error",
-				message: "Some schedules could not be deleted.",
+				message: "Some schedules were deleted, but others could not be.",
 				data: errors
+			} satisfies ApiResponse)
+			return
+		} else if (errors.length === 0 && idsToDelete.length > 0) {
+			// Full success (all requested & permitted IDs deleted)
+			res.status(200).json({
+				status: "success",
+				message: "Schedules deleted successfully!"
+			} satisfies ApiResponse)
+			return
+		} else {
+			res.status(404).json({
+				status: "error",
+				message: "No valid schedules found matching the provided IDs or permission denied for all."
 			} satisfies ApiResponse)
 			return
 		}
 
-		const deleteQuery = `
-        DELETE
-        FROM schedule
-        WHERE id = ANY ($1)
-		`
-		await postgres.query(deleteQuery, [scheduleIds])
-
-		res.status(200).json({
-			status: "success",
-			message: "Schedules deleted successfully!"
-		} satisfies ApiResponse)
 	} catch (error) {
 		next(error)
 	}

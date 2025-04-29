@@ -1,14 +1,15 @@
 import { vi } from "vitest"
-import { mockOwnerUser, mockEmployeeUser } from "./utility/testUtils"
+import { mockOwnerUser, mockEmployeeUser, mockLeaderUser } from "./utility/testUtils" // <-- Import mockLeaderUser
 
 // --- Global Supabase Client Mock ---
-vi.mock("../backend/lib/supabase", () => {
+vi.mock("../lib/supabase", () => {
 	const mockGetUser = vi.fn()
 	const mockStorageFrom = vi.fn(() => ({
 		upload: vi.fn().mockResolvedValue({ data: { path: "mock/path.jpg" }, error: null }),
 		createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: "http://urlmockurl.com/signed" }, error: null })
 	}))
 
+	// Define mock behavior for supabase.auth.getUser
 	mockGetUser.mockImplementation(async (token: string) => {
 		if (token === "TEST_OWNER_TOKEN") {
 			return { data: { user: mockOwnerUser }, error: null }
@@ -16,6 +17,11 @@ vi.mock("../backend/lib/supabase", () => {
 		if (token === "TEST_EMPLOYEE_TOKEN") {
 			return { data: { user: mockEmployeeUser }, error: null }
 		}
+		if (token === "TEST_LEADER_TOKEN") {
+			return { data: { user: mockLeaderUser }, error: null }
+		}
+
+		// Default fallback for any other token
 		return { data: { user: null }, error: { message: "Mock: Invalid token", status: 401 } }
 	})
 
