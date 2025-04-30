@@ -1027,73 +1027,58 @@ Manages user-specific settings. Found in `routes/user.ts`.
     ```
 * **Error Responses:** See table in previous response section (includes 400 for file issues - missing, type, size).
 
-#### `PATCH /user/name`
+#### `PATCH /user/profile`
 
-* **Description:** Updates the name for the currently authenticated user. This updates the name in the Supabase Auth metadata, and the change is synced to the `public.user` table via a database trigger.
-* **Permissions:** Authenticated User (Any role updates their own name).
-* **Request Body Example:**
-    ```json
-    {
-      "name": "New User Name"
-    }
-    ```
-* **`curl` Example:**
+* **Description:** Updates the name and/or age for the currently authenticated user. Updates the name in Supabase Auth metadata (synced via trigger to `public.user`) and updates the age directly in the `public.user` table. At least one field (`name` or `age`) must be provided.
+* **Permissions:** Authenticated User (Any role updates their own profile).
+* **Request Body Examples:**
+  * Update Name Only:
+      ```json
+      { "name": "New Updated Name" }
+      ```
+  * Update Age Only:
+      ```json
+      { "age": 42 }
+      ```
+  * Update Both:
+      ```json
+      { "name": "New Updated Name", "age": 42 }
+      ```
+* **Schema:** Requires at least `name` (string, 1-150 chars) or `age` (number, 14-120). Both are optional individually.
+* **`curl` Example (Updating Both):**
     ```bash
-    curl -X PATCH http://localhost:3000/user/name \
+    curl -X PATCH http://localhost:3000/user/profile \
          -H "Content-Type: application/json" \
          -H "Cookie: auth=VALID_TOKEN_HERE" \
-         -d '{ "name": "New User Name" }'
+         -d '{ "name": "New Updated Name", "age": 42 }'
     ```
 * **Success Response (200 OK):**
-    ```json
-    {
-      "status": "success",
-      "message": "User name updated successfully.",
-      "data": { "name": "New User Name" }
-    }
-    ```
+  * If changes were made:
+      ```json
+      {
+        "status": "success",
+        "message": "User profile updated successfully.",
+        "data": {
+          // Contains only the fields that were successfully updated
+          "name": "New Updated Name"
+        }
+      }
+      ```
+  * If no changes were needed (input matched existing data):
+      ```json
+      {
+        "status": "success",
+        "message": "No changes detected or needed.",
+        "data": {}
+      }
+      ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                          | Example Response Body                                                              |
-    | :---------- | :----------------------------------------------- | :--------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                | (Handled by `getUserFromCookie`)                                                   |
-  | `400`       | Validation Error (name too short/long/missing)   | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
-  | `404`       | User not found in Supabase Auth during update     | `{"status": "error", "message": "User not found during update process."}`        |
-  | `500`       | Supabase API error or unexpected server error   | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`|
-
-#### `PATCH /user/age`
-
-* **Description:** Updates the age for the currently authenticated user. This directly updates the `age` column in the `public.user` table.
-* **Permissions:** Authenticated User (Any role updates their own age).
-* **Request Body Example:**
-    ```json
-    {
-      "age": 35
-    }
-    ```
-* **`curl` Example:**
-    ```bash
-    curl -X PATCH http://localhost:3000/user/age \
-         -H "Content-Type: application/json" \
-         -H "Cookie: auth=VALID_TOKEN_HERE" \
-         -d '{ "age": 35 }'
-    ```
-* **Success Response (200 OK):**
-    ```json
-    {
-      "status": "success",
-      "message": "User age updated successfully.",
-      "data": { "age": 35 }
-    }
-    ```
-* **Error Responses:**
-
-  | Status Code | Meaning                                          | Example Response Body                                                              |
-    | :---------- | :----------------------------------------------- | :--------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                | (Handled by `getUserFromCookie`)                                                   |
-  | `400`       | Validation Error (age missing, wrong type, range)| `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
-  | `404`       | User not found in `public.user` table          | `{"status": "error", "message": "User not found in public table."}`                |
-  | `500`       | Database error or unexpected server error       | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`|
+  | Status Code | Meaning                                                | Example Response Body                                                              |
+    | :---------- | :----------------------------------------------------- | :--------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                      | (Handled by `getUserFromCookie`)                                                   |
+  | `422`       | Validation Error (e.g., empty body, name/age invalid) | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
+  | `500`       | Supabase/DB update error or unexpected server error | `{"status": "error", "message": "Failed to update user name..." OR "Failed to update user age..." OR "There was an unexpected error..."}`|
 
 ---
 
@@ -1262,7 +1247,7 @@ Vitest configuration (`vitest.config.ts`) includes setup files (`tests/loadEnv.t
   * `schedule.integration.test.ts`: Covers fetching schedule views (weekly overview, hourly details), creating schedules (including constraint validation like overlaps, rest periods, max hours, age restrictions), fetching users for scheduling, finalizing schedules, deleting, and updating schedules.
   * `ticket.integration.test.ts`: Covers creating tickets (for company or admin), listing tickets based on role permissions, fetching single ticket details (with optional responses), updating ticket status (closing/opening), and adding/retrieving ticket responses.
   * `training.integration.test.ts`: Covers listing available trainings (role-based, active/completed status), fetching submission results (general summaries and detailed test results), fetching individual training details (including questions for active tests and file URLs for inactive ones), creating new trainings with file uploads, starting trainings, and submitting answers.
-  * `user.integration.test.ts`: Covers user profile avatar uploads, user name updates, and user age updates.
+  * `user.integration.test.ts`: Covers user profile updates (avatar, combined name/age).
 
 **Coverage Goal:** While aiming for high (~100%) coverage, the actual percentage requires a coverage reporting tool. The existing tests provide significant coverage across all API modules.
 

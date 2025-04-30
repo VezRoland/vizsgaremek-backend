@@ -123,80 +123,28 @@ router.post(
 	}
 );
 
-// --- Zod Schema for Name Update ---
-const updateNameSchema = object({
-	name: string({message: "Name is required"})
-		.min(1, "Name is required")
+// --- Zod Schema for Profile Update ---
+const updateProfileSchema = object({
+	name: string({ message: "Name is required" })
+		.min(1, "Name must be at least 1 character")
 		.max(150, "Name is too long (max. 150 characters)")
-})
-
-router.patch("/name", getUserFromCookie, async (req: Request, res: Response, next: NextFunction) => {
-	const user = req.user as User
-
-	// 1. Validate Request Body
-	const validation = updateNameSchema.safeParse(req.body)
-	if (!validation.success) {
-		res.status(400).json({
-			status: "error",
-			message: "Invalid data provided.",
-			errors: validation.error.flatten()
-		} satisfies ApiResponse)
-		return
-	}
-
-	const {name: newName} = validation.data
-	// 2. Update User Metadata in Supabase Auth
-	try {
-		const {data: updatedUserData, error: updateError} = await supabase.auth.admin.updateUserById(
-			user.id,
-			{
-				user_metadata: {
-					...user.user_metadata,
-					name: newName
-				}
-			}
-		)
-
-		if (updateError) {
-			console.error(`[User ${user.id}] Supabase name update error:`, updateError)
-			if (updateError.message.includes("User not found")) {
-				res.status(404).json({
-					status: "error",
-					message: "User not found during update process."
-				} satisfies ApiResponse)
-				return
-			}
-			throw new Error("Failed to update user name in authentication service.")
-		}
-
-		// 3. Send Success Response
-		res.status(200).json({
-			status: "success",
-			message: "User name updated successfully.",
-			data: {name: updatedUserData.user.user_metadata.name}
-		} satisfies ApiResponse)
-
-	} catch (error) {
-		console.error(`[User ${user.id}] Error updating name:`, error)
-		next(error)
-	}
-})
-
-// --- Zod Schema for Age Update ---
-const updateAgeSchema = object({
-	age: number({required_error: "Age is required", invalid_type_error: "Age must be a number"})
+		.optional(),
+	age: number({ invalid_type_error: "Age must be a number" })
 		.min(14, "Age must be at least 14")
 		.max(120, "Age cannot be more than 120")
+		.optional()
+}).refine(data => data.name !== undefined || data.age !== undefined, {
+	message: "At least name or age must be provided for update."
 })
 
-// --- Route to Change User's Age ---
-router.patch("/age", getUserFromCookie, async (req: Request, res: Response, next: NextFunction) => {
+// --- Route to Change User's Name and/or Age ---
+router.patch("/profile", getUserFromCookie, async (req: Request, res: Response, next: NextFunction) => {
 	const user = req.user as User
 
 	// 1. Validate Request Body
-	const validation = updateAgeSchema.safeParse(req.body)
+	const validation = updateProfileSchema.safeParse(req.body)
 	if (!validation.success) {
-		res.status(400).json({
+		res.status(422).json({
 			status: "error",
 			message: "Invalid data provided.",
 			errors: validation.error.flatten()
@@ -204,34 +152,89 @@ router.patch("/age", getUserFromCookie, async (req: Request, res: Response, next
 		return
 	}
 
-	const {age: newAge} = validation.data
-	// 2. Update Age in public.user table
-	try {
-		const result = await postgres.query(
-			`UPDATE public."user"
-       SET age = $1
-       WHERE id = $2
-       RETURNING age`,
-			[newAge, user.id]
-		)
+	const { name: newName, age: newAge } = validation.data
+	const updatedFields: { name?: string, age?: number } = {}
+	let nameUpdateError: Error | null = null
+	let ageUpdateError: Error | null = null
+	let currentAgeFromDb: number | null | undefined = undefined
 
-		if (result.rowCount === 0) {
-			res.status(404).json({
+	try {
+		if (newAge !== undefined) {
+			const currentUserData = await postgres.query(
+				`SELECT age FROM public."user" WHERE id = $1`,
+				[user.id]
+			)
+			if (currentUserData.rowCount > 0) {
+				currentAgeFromDb = currentUserData.rows[0].age
+			}
+		}
+
+		// 2. Update Name in Supabase Auth (if provided and different)
+		if (newName !== undefined && newName !== user.user_metadata.name) {
+			const { data: updatedUserData, error: updateError } = await supabase.auth.admin.updateUserById(
+				user.id,
+				{ user_metadata: { ...user.user_metadata, name: newName } }
+			)
+			if (updateError) {
+				nameUpdateError = updateError
+				console.error(`[User ${user.id}] Supabase name update error:`, updateError)
+			} else if (updatedUserData?.user?.user_metadata?.name) {
+				updatedFields.name = newName
+			}
+		}
+
+		// 3. Update Age in public.user table (if provided and different from current)
+		if (newAge !== undefined && newAge !== currentAgeFromDb) {
+			try {
+				const result = await postgres.query(
+					`UPDATE public."user" SET age = $1 WHERE id = $2 RETURNING age`,
+					[newAge, user.id]
+				)
+				if (result.rowCount > 0) {
+					updatedFields.age = result.rows[0].age
+				} else {
+					console.warn(`[User ${user.id}] User not found in public table during age update.`)
+					if (!nameUpdateError) {
+						ageUpdateError = new Error("User not found for age update.")
+					}
+				}
+			} catch (dbError: any) {
+				ageUpdateError = dbError
+				console.error(`[User ${user.id}] Error updating age in public.user:`, dbError)
+			}
+		}
+
+		// 4. Handle potential errors
+		if (nameUpdateError || ageUpdateError) {
+			const message = nameUpdateError
+				? "Failed to update user name in authentication service."
+				: "Failed to update user age in profile."
+			res.status(500).json({
 				status: "error",
-				message: "User not found in public table."
+				message: message
 			} satisfies ApiResponse)
 			return
 		}
 
-		// 3. Send Success Response
-		res.status(200).json({
-			status: "success",
-			message: "User age updated successfully.",
-			data: {age: result.rows[0].age}
-		} satisfies ApiResponse)
+		// 5. Determine final response based on whether updates occurred
+		if (Object.keys(updatedFields).length > 0) {
+			 res.status(200).json({
+				status: "success",
+				message: "User profile updated successfully.",
+				data: updatedFields
+			} satisfies ApiResponse)
+			return
+		} else {
+			res.status(200).json({
+				status: "success",
+				message: "No changes detected or needed.",
+				data: {}
+			} satisfies ApiResponse)
+			return
+		}
 
 	} catch (error) {
-		console.error(`[User ${user.id}] Error updating age:`, error)
+		console.error(`[User ${user.id}] Unexpected error updating profile:`, error)
 		next(error)
 	}
 })

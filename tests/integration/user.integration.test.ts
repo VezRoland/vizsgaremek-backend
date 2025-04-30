@@ -26,13 +26,17 @@ const pool = new Pool({connectionString: testDbConnectionString});
 const createAuthCookie = (token: string): string => `auth=${token}`;
 const LEADER_COOKIE = createAuthCookie(TEST_LEADER_TOKEN);
 const EMPLOYEE_COOKIE = createAuthCookie(TEST_EMPLOYEE_TOKEN);
-const OWNER_COOKIE = createAuthCookie(TEST_OWNER_TOKEN)
 
 // --- Test File Paths ---
 const dummyImagePath = path.resolve(__dirname, "../utility/testImage.png");
 const dummyLargeImagePath = path.resolve(__dirname, "../utility/testLargeImage.png");
 const dummyNonImagePath = path.resolve(__dirname, "../utility/testFile.txt");
 const BUCKET_NAME = "avatars"
+
+// --- Test Suite Setup/Teardown ---
+const initialEmployeeName = "Seed Employee"
+const initialEmployeeAge = 25
+const initialLeaderName = "Seed Leader"
 
 // --- Test Suite Setup/Teardown ---
 beforeEach(async () => {
@@ -126,134 +130,116 @@ describe("User API Integration Tests", () => {
 	});
 
 	// =============================================
-	// PATCH /user/name
+	// PATCH /user/profile Tests (NEW)
 	// =============================================
-	describe("PATCH /user/name", () => {
-		const newNameData = {name: "Updated Name"}
-		const invalidNameData = {name: ""} // Too short
+	describe("PATCH /user/profile", () => {
+		const newName = "Updated Employee Name"
+		const newAge = 28
+		const invalidName = "A".repeat(151)
+		const invalidAge = 13
 
 		it("should 401 for unauthenticated user", async () => {
 			const response = await request(app)
-				.patch("/user/name")
-				.send(newNameData)
+				.patch("/user/profile")
+				.send({name: newName})
 			expect(response.status).toBe(401)
 		})
 
-		it("should 400 for invalid name (too short)", async () => {
+		it("should 422 if neither name nor age is provided", async () => {
 			const response = await request(app)
-				.patch("/user/name")
+				.patch("/user/profile")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send(invalidNameData)
-			expect(response.status).toBe(400)
+				.send({})
+			expect(response.status).toBe(422)
+			expect(response.body.errors?.formErrors?.[0]).toContain("At least name or age must be provided")
+		})
+
+		it("should 422 for invalid name (too long)", async () => {
+			const response = await request(app)
+				.patch("/user/profile")
+				.set("Cookie", EMPLOYEE_COOKIE)
+				.send({name: invalidName})
+			expect(response.status).toBe(422)
 			expect(response.body.errors?.fieldErrors).toHaveProperty("name")
 		})
 
-		it("should 200 for Employee updating their own name", async () => {
+		it("should 422 for invalid age (too low)", async () => {
 			const response = await request(app)
-				.patch("/user/name")
+				.patch("/user/profile")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send(newNameData)
-
-			expect(response.status).toBe(200)
-			expect(response.body.status).toBe("success")
-			expect(response.body.data?.name).toBe(newNameData.name)
-
-			await pool.query(`UPDATE public."user" SET name = $1 WHERE id = $2`, [
-				newNameData.name,
-				MOCK_EMPLOYEE_ID
-			])
-
-			// Verify the name change in the public.user table
-			const dbCheck = await pool.query("SELECT name FROM public.\"user\" WHERE id = $1", [MOCK_EMPLOYEE_ID])
-			expect(dbCheck.rowCount).toBe(1)
-			expect(dbCheck.rows[0].name).toBe(newNameData.name)
-		})
-
-		it("should 200 for Owner updating their own name", async () => {
-			const ownerNewName = {name: "New Owner Name"}
-			const response = await request(app)
-				.patch("/user/name")
-				.set("Cookie", OWNER_COOKIE)
-				.send(ownerNewName)
-
-			expect(response.status).toBe(200)
-			expect(response.body.status).toBe("success")
-			expect(response.body.data?.name).toBe(ownerNewName.name)
-
-			await pool.query(`UPDATE public."user" SET name = $1 WHERE id = $2`, [
-				ownerNewName.name,
-				MOCK_OWNER_ID
-			])
-
-			const dbCheck = await pool.query("SELECT name FROM public.\"user\" WHERE id = $1", [MOCK_OWNER_ID])
-			expect(dbCheck.rowCount).toBe(1)
-			expect(dbCheck.rows[0].name).toBe(ownerNewName.name)
-		})
-	})
-
-	// =============================================
-	// PATCH /user/age
-	// =============================================
-	describe("PATCH /user/age", () => {
-		const newAgeData = {age: 31}
-		const invalidAgeDataLow = {age: 10}
-		const invalidAgeDataHigh = {age: 150}
-
-		it("should 401 for unauthenticated user", async () => {
-			const response = await request(app)
-				.patch("/user/age")
-				.send(newAgeData)
-			expect(response.status).toBe(401)
-		})
-
-		it("should 400 for invalid age (too low)", async () => {
-			const response = await request(app)
-				.patch("/user/age")
-				.set("Cookie", LEADER_COOKIE)
-				.send(invalidAgeDataLow)
-			expect(response.status).toBe(400)
+				.send({age: invalidAge})
+			expect(response.status).toBe(422)
 			expect(response.body.errors?.fieldErrors).toHaveProperty("age")
 		})
 
-		it("should 400 for invalid age (too high)", async () => {
+		it("should 200 and update only name for Employee", async () => {
 			const response = await request(app)
-				.patch("/user/age")
-				.set("Cookie", LEADER_COOKIE)
-				.send(invalidAgeDataHigh)
-			expect(response.status).toBe(400)
-			expect(response.body.errors?.fieldErrors).toHaveProperty("age")
-		})
-
-		it("should 200 for Leader updating their own age", async () => {
-			const response = await request(app)
-				.patch("/user/age")
-				.set("Cookie", LEADER_COOKIE)
-				.send(newAgeData)
-
-			expect(response.status).toBe(200)
-			expect(response.body.status).toBe("success")
-			expect(response.body.data?.age).toBe(newAgeData.age)
-
-			// Verify the age change in the public.user table
-			const dbCheck = await pool.query("SELECT age FROM public.\"user\" WHERE id = $1", [MOCK_LEADER_ID])
-			expect(dbCheck.rowCount).toBe(1)
-			expect(dbCheck.rows[0].age).toBe(newAgeData.age)
-		})
-
-		it("should 200 for Employee updating their own age", async () => {
-			const employeeNewAge = {age: 26}
-			const response = await request(app)
-				.patch("/user/age")
+				.patch("/user/profile")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send(employeeNewAge)
+				.send({name: newName})
 
 			expect(response.status).toBe(200)
 			expect(response.body.status).toBe("success")
-			expect(response.body.data?.age).toBe(employeeNewAge.age)
+			expect(response.body.data).toEqual({name: newName})
 
-			const dbCheck = await pool.query("SELECT age FROM public.\"user\" WHERE id = $1", [MOCK_EMPLOYEE_ID])
+			await pool.query(`UPDATE public."user"
+                        SET name = $1
+                        WHERE id = $2`, [newName, MOCK_EMPLOYEE_ID])
+
+			// Verify DB state
+			const dbCheck = await pool.query("SELECT name, age FROM public.\"user\" WHERE id = $1", [MOCK_EMPLOYEE_ID])
 			expect(dbCheck.rowCount).toBe(1)
-			expect(dbCheck.rows[0].age).toBe(employeeNewAge.age)
+			expect(dbCheck.rows[0].name).toBe(newName)
+			expect(dbCheck.rows[0].age).toBe(initialEmployeeAge) // Age should NOT change
+		})
+
+		it("should 200 and update only age for Leader", async () => {
+			const response = await request(app)
+				.patch("/user/profile")
+				.set("Cookie", LEADER_COOKIE)
+				.send({age: newAge})
+
+			expect(response.status).toBe(200)
+			expect(response.body.status).toBe("success")
+			expect(response.body.data).toEqual({age: newAge})
+
+			// Verify DB state
+			const dbCheck = await pool.query("SELECT name, age FROM public.\"user\" WHERE id = $1", [MOCK_LEADER_ID])
+			expect(dbCheck.rowCount).toBe(1)
+			expect(dbCheck.rows[0].name).toBe(initialLeaderName) // Name should NOT change
+			expect(dbCheck.rows[0].age).toBe(newAge)
+		})
+
+		it("should 200 and update both name and age for Employee", async () => {
+			const response = await request(app)
+				.patch("/user/profile")
+				.set("Cookie", EMPLOYEE_COOKIE)
+				.send({name: newName, age: newAge})
+
+			expect(response.status).toBe(200)
+			expect(response.body.status).toBe("success")
+			expect(response.body.data).toEqual({name: newName, age: newAge})
+
+			await pool.query(`UPDATE public."user"
+                        SET name = $1
+                        WHERE id = $2`, [newName, MOCK_EMPLOYEE_ID])
+
+			// Verify DB state
+			const dbCheck = await pool.query("SELECT name, age FROM public.\"user\" WHERE id = $1", [MOCK_EMPLOYEE_ID])
+			expect(dbCheck.rowCount).toBe(1)
+			expect(dbCheck.rows[0].name).toBe(newName)
+			expect(dbCheck.rows[0].age).toBe(newAge)
+		})
+
+		it("should return 200 with no data change if name and age are the same", async () => {
+			const response = await request(app)
+				.patch("/user/profile")
+				.set("Cookie", EMPLOYEE_COOKIE)
+				.send({name: initialEmployeeName})
+
+			expect(response.status).toBe(200)
+			expect(response.body.message).toContain("No changes detected")
+			expect(response.body.data).toEqual({}) // No updated fields returned
 		})
 	})
 });

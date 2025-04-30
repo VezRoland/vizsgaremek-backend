@@ -1,5 +1,5 @@
-import type { User } from "@supabase/supabase-js"
-import { UserRole } from "../../types/database"
+import type {User} from "@supabase/supabase-js"
+import {UserRole} from "../../types/database"
 
 export const MOCK_OWNER_ID = "2a8595e8-f182-4a95-89db-6cb54e68649f"
 export const MOCK_EMPLOYEE_ID = "f0744a3b-71d4-4d96-9e70-b2f3d4acb727"
@@ -26,13 +26,23 @@ export const MOCK_LOGIN_EMAIL = "employee@test.com"
 export const MOCK_LOGIN_PASSWORD = "password123"
 export const MOCK_EXISTS_EMAIL = "exists@test.com"
 
+const userNames: Record<string, string> = {
+	[MOCK_OWNER_ID]: "Seed Owner",
+	[MOCK_LEADER_ID]: "Seed Leader",
+	[MOCK_EMPLOYEE_ID]: "Seed Employee",
+	[MOCK_ADMIN_ID]: "Seed Admin",
+	[MOCK_SECOND_OWNER_ID]: "Second Owner",
+	[MOCK_UNVERIFIED_EMPLOYEE_ID]: "Unverified Employee",
+	[MOCK_OTHER_EMPLOYEE_ID]: "Other Employee",
+};
+
 export const createMockUser = (role: UserRole, userId: string, companyId: string | null): User => ({
 	id: userId,
 	app_metadata: {},
 	user_metadata: {
 		role: role,
 		company_id: companyId,
-		name: `Mock ${UserRole[role]} ${userId.substring(0, 5)}`,
+		name: userNames[userId] || `Mock User ${userId.substring(0, 5)}`,
 		verified: true,
 		created_at: new Date().toISOString(),
 		age: (role === UserRole.Admin) ? 40 : 30,
@@ -41,7 +51,8 @@ export const createMockUser = (role: UserRole, userId: string, companyId: string
 	},
 	aud: "authenticated",
 	created_at: new Date().toISOString(),
-	email: `${userId}@test.com`
+	email: `${userId}@test.com`,
+	updated_at: new Date().toISOString()
 })
 
 export const mockOwnerUser = createMockUser(UserRole.Owner, MOCK_OWNER_ID, MOCK_COMPANY_ID)
