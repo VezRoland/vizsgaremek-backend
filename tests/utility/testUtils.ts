@@ -8,6 +8,10 @@ export const MOCK_LEADER_ID = "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d"
 export const MOCK_UNDER18_EMPLOYEE_ID = "e5b1c4d0-a2b3-4c5d-8e6f-7a8b9c0d1e2f"
 export const MOCK_ADMIN_ID = "a1b2c3d4-e5f6-4a5b-8c6d-9a8b7c6d5e4f"
 export const MOCK_NEW_USER_ID = "ba7fc46e-95b2-4cd5-ad54-739bee523839"
+export const MOCK_OTHER_COMPANY_ID = "a9b8c7d6-e5f4-a3b2-c1d0-e9f8a7b6c5d4";
+export const MOCK_UNVERIFIED_EMPLOYEE_ID = "b1c2d3e4-f5a6-b7c8-d9e0-a1b2c3d4e5f6";
+export const MOCK_OTHER_EMPLOYEE_ID = "c3d4e5f6-a1b2-c3d4-e5f6-a1b2c3d4e5f6";
+export const MOCK_SECOND_OWNER_ID = "d4e5f6a1-b2c3-d4e5-f6a1-b2c3d4e5f6a1"; // For testing owner updates owner
 
 export const MOCK_ACCESS_TOKEN = "MOCK_ACCESS_TOKEN_FROM_LOGIN"
 export const MOCK_REFRESH_TOKEN = "MOCK_REFRESH_TOKEN_FROM_LOGIN"

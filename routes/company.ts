@@ -41,7 +41,11 @@ router.patch("/name", getUserFromCookie, async (req: Request, res: Response, nex
     return
   }
 
-  if (!hasPermission(user, "company", "updateName", {companyId: companyId, role: user.user_metadata.role, userId: user.id})) {
+  if (!hasPermission(user, "company", "updateName", {
+    companyId: companyId,
+    role: user.user_metadata.role,
+    userId: user.id
+  })) {
     res.status(403).json({
       status: "error",
       message: "You do not have permission to change the company name.",
@@ -77,21 +81,30 @@ router.patch("/name", getUserFromCookie, async (req: Request, res: Response, nex
 
 router.get("/users", getUserFromCookie, async (req: Request, res: Response, next: NextFunction) => {
   const requester = req.user as User;
-  const companyId = requester.user_metadata.company_id;
   const requesterRole = requester.user_metadata.role;
+  const requesterCompanyId = requester.user_metadata.company_id;
   const requesterId = requester.id;
 
-  // 1. Check Permissions: Deny Employees
-  if (!hasPermission(requester, "company", "view", {companyId: companyId, role: requesterRole, userId: requesterId}) || requester.user_metadata.role === UserRole.Employee) {
+  // 1. Check Permissions: Deny Employees first
+  if (requesterRole === UserRole.Employee) {
     res.status(403).json({
       status: "error",
-      message: "You do not have permission to view company users."
+      message: "Employees do not have permission to view company users."
+    } satisfies ApiResponse);
+    return
+  }
+
+  // 2. Check Company Association: Return 400 if no company ID (specifically for Admin test expectation)
+  if (!requesterCompanyId) {
+    res.status(400).json({
+      status: "error",
+      message: "Requesting user is not associated with a company."
     } satisfies ApiResponse);
     return
   }
 
   try {
-    // 2. Query Users: In same company, not the requester, at or below requester's rank
+    // 3. Query Users: In same company, not the requester, at or below requester's rank
     const result = await postgres.query(
       `SELECT id, name, role, avatar_url, verified
        FROM public."user"
@@ -99,10 +112,10 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
          AND id != $2
          AND role <= $3
        ORDER BY role DESC, name ASC`,
-      [companyId, requesterId, requesterRole]
+      [requesterCompanyId, requesterId, requesterRole]
     );
 
-    // 3. Return results
+    // 4. Return results
     res.status(200).json({
       status: "success",
       message: "Company users fetched successfully.",
@@ -118,14 +131,25 @@ router.get("/user/:userId", getUserFromCookie, async (req: Request, res: Respons
   const requester = req.user as User;
   const targetUserId = req.params.userId;
 
+  const requesterId = requester.id;
   const requesterRole = requester.user_metadata.role;
   const requesterCompanyId = requester.user_metadata.company_id;
 
+  // Admins cannot use this route as it's company-based
+  if (requesterRole === UserRole.Admin || !requesterCompanyId) {
+    res.status(403).json({
+      status: "error",
+      message: "User not associated with a company or invalid role for this action."
+    } satisfies ApiResponse);
+    return
+  }
+
   try {
-    if (!hasPermission(requester, "company", "view", {companyId: requesterCompanyId, role: requesterRole, userId: targetUserId})) {
+    // Handle Employee viewing: must be self
+    if (requesterRole === UserRole.Employee && targetUserId !== requesterId) {
       res.status(403).json({
         status: "error",
-        message: "You do not have permission to view this user's data."
+        message: "Employees can only view their own data."
       } satisfies ApiResponse);
       return
     }
@@ -139,6 +163,15 @@ router.get("/user/:userId", getUserFromCookie, async (req: Request, res: Respons
     );
 
     if (targetUserResult.rowCount === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: "User not found."
+      } satisfies ApiResponse);
+    }
+
+    const targetUser = targetUserResult.rows[0];
+
+    if (targetUser.company_id !== requesterCompanyId) {
       res.status(404).json({
         status: "error",
         message: "User not found."
@@ -146,15 +179,13 @@ router.get("/user/:userId", getUserFromCookie, async (req: Request, res: Respons
       return
     }
 
-    if (!hasPermission(requester, "company", "view", {companyId: targetUserResult.rows[0].companyId, role: targetUserResult.rows[0].role, userId: targetUserId})) {
+    if (targetUser.role > requesterRole) {
       res.status(403).json({
         status: "error",
-        message: "You do not have permission to view this user's data."
+        message: "Cannot view users with a higher role."
       } satisfies ApiResponse);
       return
     }
-
-    const targetUser = targetUserResult.rows[0];
 
     res.status(200).json({
       status: "success",
@@ -180,10 +211,18 @@ router.patch("/verify/:userId", getUserFromCookie, async (req: Request, res: Res
   const requesterCompanyId = requester.user_metadata.company_id;
 
   // 1. Check Permissions: Only Leader or Owner
-  if (!hasPermission(requester, "company", "verify", {companyId: requesterCompanyId, role: requesterRole, userId: targetUserId})) {
+  if (requesterRole !== UserRole.Leader && requesterRole !== UserRole.Owner) {
     res.status(403).json({
       status: "error",
       message: "Only Leaders or Owners can verify users."
+    } satisfies ApiResponse);
+    return
+  }
+
+  if (!requesterCompanyId) {
+    res.status(403).json({
+      status: "error",
+      message: "Requesting user is not associated with a company."
     } satisfies ApiResponse);
     return
   }
@@ -205,23 +244,25 @@ router.patch("/verify/:userId", getUserFromCookie, async (req: Request, res: Res
       return
     }
 
-    if (targetUserResult.rows[0].company_id !== requesterCompanyId) {
-      res.status(403).json({
+    const targetUser = targetUserResult.rows[0];
+
+    if (targetUser.company_id !== requesterCompanyId) {
+      res.status(404).json({
         status: "error",
-        message: "Cannot verify users outside your company."
+        message: "User to verify not found."
       } satisfies ApiResponse);
       return
     }
 
-    if (targetUserResult.rows[0].verified) {
-      res.status(400).json({
-        status: "error",
+    // 3. Update user's verified status (only if not already verified)
+    if (targetUser.verified === true) {
+      res.status(200).json({
+        status: "success",
         message: "User is already verified."
       } satisfies ApiResponse);
       return
     }
 
-    // 3. Update user's verified status
     const updateResult = await postgres.query(
       `UPDATE public."user"
        SET verified = true
@@ -238,6 +279,7 @@ router.patch("/verify/:userId", getUserFromCookie, async (req: Request, res: Res
       return
     }
 
+    // 4. Send Success Response
     res.status(200).json({
       status: "success",
       message: "User verified successfully."
@@ -266,7 +308,7 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
   const requesterId = requester.id;
 
   // 1. Check Permissions: Only Owner
-  if (!hasPermission(requester, "company", "update", {companyId: requesterCompanyId, role: requesterRole, userId: targetUserId})) {
+  if (requesterRole !== UserRole.Owner) {
     res.status(403).json({
       status: "error",
       message: "Only Owners can update user data."
@@ -274,7 +316,14 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
     return
   }
 
-  // Prevent self-update via this route
+  if (!requesterCompanyId) {
+    res.status(403).json({
+      status: "error",
+      message: "Requesting user is not associated with a company."
+    } satisfies ApiResponse);
+    return
+  }
+
   if (targetUserId === requesterId) {
     res.status(403).json({
       status: "error",
@@ -296,12 +345,11 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
 
   const {role: newRole, hourlyWage: newHourlyWage} = validation.data;
 
-  if (newRole === 4 ) {
-    res.status(400).json({
+  if (newRole === UserRole.Admin) {
+    return res.status(403).json({
       status: "error",
-      message: "Cannot set role to Administrator."
+      message: "Cannot promote user to Admin via this route."
     } satisfies ApiResponse);
-    return
   }
 
   try {
@@ -322,20 +370,22 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
     }
 
     const targetUser = targetUserResult.rows[0];
+    const currentRole = targetUser.role;
 
     // 4. Verify target is in the same company and not an Owner
-    if (!hasPermission(requester, "company", "update", {companyId: targetUser.company_id, role: targetUser.role, userId: targetUserId})) {
-      res.status(403).json({
+    if (targetUser.company_id !== requesterCompanyId) {
+      res.status(404).json({
         status: "error",
-        message: "Cannot update users outside your company."
+        message: "User to update not found."
       } satisfies ApiResponse);
       return
     }
-    if (targetUser.role === UserRole.Owner) {
-      return res.status(403).json({
+    if (currentRole === UserRole.Owner) {
+      res.status(403).json({
         status: "error",
         message: "Cannot update data for other Owners."
       } satisfies ApiResponse);
+      return
     }
 
 
@@ -344,19 +394,21 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
     const params: (string | number | null)[] = [targetUserId, requesterCompanyId];
     let paramIndex = 3;
 
-    if (newRole !== undefined) {
+    if (newRole !== undefined && newRole !== currentRole) {
       updates.push(`role = $${paramIndex++}`);
       params.push(newRole);
     }
+
     if (newHourlyWage !== undefined) {
       updates.push(`hourly_wage = $${paramIndex++}`);
       params.push(newHourlyWage);
     }
 
+
     if (updates.length === 0) {
-      res.status(400).json({
-        status: "error",
-        message: "No update data provided."
+      res.status(200).json({
+        status: "success",
+        message: "No changes detected in submitted data."
       } satisfies ApiResponse);
       return
     }
