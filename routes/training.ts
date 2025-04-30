@@ -463,7 +463,31 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 
 	try {
 		const file = req.file
-		const data = JSON.parse(req.body.data)
+		if (!file) {
+			// If no file is attached to the request, return an error
+			res.status(400).json({
+				status: "error",
+				message: "Training file is required."
+			} satisfies ApiResponse)
+			return
+		}
+		if (!req.body.data) {
+			res.status(400).json({
+				status: "error",
+				message: "Missing training data in 'data' field."
+			})
+			return
+		}
+		let data
+		try {
+			data = JSON.parse(req.body.data)
+		} catch (e) {
+			res.status(400).json({
+				status: "error",
+				message: "Invalid JSON in 'data' field."
+			})
+			return
+		}
 
 		// Parse form data
 		const validation = trainingCreateSchema.safeParse(data)
@@ -517,35 +541,31 @@ router.post("/", upload.single("file"), getUserFromCookie, async (req: Request, 
 
 		const trainingId = crypto.randomUUID()
 
-		// Upload file to Supabase if provided
-		let filePath = null
-		if (file) {
-			const fileExt = file.originalname.split(".").pop()
+		const fileExt = file.originalname.split(".").pop()
 
-			// Sanitize the training name for filename
-			const sanitizedName = name
-				.toLowerCase()
-				.replace(/[^a-z0-9]/g, "-")  // Replace special chars with hyphens
-				.replace(/-+/g, "-")         // Remove consecutive hyphens
-				.replace(/^-|-$/g, "")      // Remove leading/trailing hyphens
+		// Sanitize the training name for filename
+		const sanitizedName = name
+			.toLowerCase()
+			.replace(/[^a-z0-9]/g, "-")  // Replace special chars with hyphens
+			.replace(/-+/g, "-")         // Remove consecutive hyphens
+			.replace(/^-|-$/g, "")      // Remove leading/trailing hyphens
 
-			const fileName = `${sanitizedName}_${trainingId}.${fileExt}`
-			filePath = `trainings/${companyId}/${fileName}`
+		const fileName = `${sanitizedName}_${trainingId}.${fileExt}`
+		const filePath = `trainings/${companyId}/${fileName}`
 
-			const { error } = await supabase.storage
-				.from("training-files")
-				.upload(filePath, file.buffer, {
-					contentType: file.mimetype,
-					upsert: true
-				})
+		const { error } = await supabase.storage
+			.from("training-files")
+			.upload(filePath, file.buffer, {
+				contentType: file.mimetype,
+				upsert: true
+			})
 
-			if (error) {
-				res.status(500).json({
-					status: "error",
-					message: "Failed to upload file"
-				})
-				return
-			}
+		if (error) {
+			res.status(500).json({
+				status: "error",
+				message: "Failed to upload file"
+			})
+			return
 		}
 
 		await postgres.query(
