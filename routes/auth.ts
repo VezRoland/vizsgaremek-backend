@@ -1,26 +1,20 @@
 import { Router } from "express"
 import { supabase } from "../lib/supabase"
 import postgres from "../lib/postgres"
-import { getUserFromCookie } from "../lib/utils"
+import { getUserFromCookie } from "../lib/utils" // Keep this import
 import { z } from "zod"
 import {
 	signInSchema,
 	signUpEmployeeSchema,
 	signUpCompanySchema
 } from "../schemas/auth"
-
-import type { CookieOptions, NextFunction, Response } from "express"
+import type { NextFunction } from "express" // Add Request type
+import { AuthApiError, type User } from "@supabase/supabase-js"
+import { UserRole } from "../types/database"
 import type { ApiResponse } from "../types/response"
-import { AuthApiError } from "@supabase/supabase-js"
-import { UserRole, type User } from "../types/database"
+import { COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS } from "../lib/constants.ts"
 
 const router = Router()
-const COOKIE_OPTIONS: CookieOptions = {
-	httpOnly: true,
-	secure: true,
-	sameSite: "none",
-	maxAge: 60 * 60 * 1000
-}
 
 async function getCompanyIdByCode(
 	code: string,
@@ -101,7 +95,15 @@ router.post("/sign-in", async (req, res, next) => {
 		return next(authResponse.error)
 	}
 
-	res.cookie("auth", authResponse.data.session.access_token, COOKIE_OPTIONS)
+	res.cookie("auth", authResponse.data.session.access_token, {
+		...COOKIE_OPTIONS,
+		maxAge: (authResponse.data.session.expires_in - 10) * 1000
+	})
+	res.cookie(
+		"refresh",
+		authResponse.data.session.refresh_token,
+		REFRESH_COOKIE_OPTIONS
+	)
 	res.json({
 		status: "success",
 		message: "Signed in successfully."
@@ -267,7 +269,8 @@ router.post("/sign-out", getUserFromCookie, async (req, res, next) => {
 		return next(authResponse.error)
 	}
 
-	res.clearCookie("auth", COOKIE_OPTIONS)
+	res.clearCookie("auth")
+	res.clearCookie("refresh")
 	res.json({
 		status: "success",
 		message: "Signed out successfully."
