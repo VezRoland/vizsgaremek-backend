@@ -6,6 +6,7 @@ import type {ApiResponse} from "../types/response";
 import type {User} from "@supabase/supabase-js";
 import {hasPermission} from "../lib/roles";
 import {UserRole} from "../types/database.ts";
+import {supabase} from "../lib/supabase.ts";
 
 const router = Router();
 
@@ -344,7 +345,7 @@ router.patch("/verify/:userId", getUserFromCookie, async (req: Request, res: Res
 
 // Zod schema for validation
 const updateUserSchema = object({
-	role: number().min(UserRole.Employee).max(UserRole.Admin).optional(),
+	role: number().min(UserRole.Employee).max(UserRole.Owner).optional(),
 	hourlyWage: number().min(0).optional()
 }).refine(data => data.role !== undefined || data.hourlyWage !== undefined, {
 	message: "At least role or hourlyWage must be provided for update."
@@ -354,32 +355,30 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
 	const requester = req.user as User;
 	const targetUserId = req.params.userId;
 
-	const requesterRole = requester.user_metadata.role;
+	const requesterRole = requester.user_metadata.role as UserRole;
 	const requesterCompanyId = requester.user_metadata.company_id;
 	const requesterId = requester.id;
 
-	// 1. Check Permissions: Only Owner
+	// 1. Permission Checks
 	if (requesterRole !== UserRole.Owner) {
 		res.status(403).json({
 			status: "error",
 			message: "Only Owners can update user data."
-		} satisfies ApiResponse);
+		});
 		return
 	}
-
 	if (!requesterCompanyId) {
 		res.status(403).json({
 			status: "error",
 			message: "Requesting user is not associated with a company."
-		} satisfies ApiResponse);
+		});
 		return
 	}
-
 	if (targetUserId === requesterId) {
 		res.status(403).json({
 			status: "error",
 			message: "Cannot update your own role or wage via this route."
-		} satisfies ApiResponse);
+		});
 		return
 	}
 
@@ -390,102 +389,125 @@ router.patch("/user/:userId", getUserFromCookie, async (req: Request, res: Respo
 			status: "error",
 			message: "Invalid data provided.",
 			errors: validation.error.flatten(),
-		} satisfies ApiResponse);
+		});
 		return
 	}
-
 	const {role: newRole, hourlyWage: newHourlyWage} = validation.data;
 
 	if (newRole === UserRole.Admin) {
-		return res.status(403).json({
+		res.status(403).json({
 			status: "error",
-			message: "Cannot promote user to Admin via this route."
-		} satisfies ApiResponse);
+			message: "Cannot change role to Admin via this route."
+		});
+		return
 	}
 
 	try {
-		// 3. Fetch target user to check company and current role
+		const {data: targetAuthUserObj, error: getAuthUserError} = await supabase.auth.admin.getUserById(targetUserId);
+		if (getAuthUserError || !targetAuthUserObj?.user) {
+			console.error(`[Company PATCH User] Supabase target user fetch error for ${targetUserId}:`, getAuthUserError);
+			res.status(404).json({
+				status: "error",
+				message: "User to update not found in authentication system."
+			});
+			return
+		}
+		const currentAuthMetadata = targetAuthUserObj.user.user_metadata || {};
+		const currentAuthRole = currentAuthMetadata.role as UserRole;
+
 		const targetUserResult = await postgres.query(
-			`SELECT role, company_id
+			`SELECT role, company_id, hourly_wage
        FROM public."user"
-       WHERE id = $1`,
-			[targetUserId]
+       WHERE id = $1
+         AND company_id = $2`,
+			[targetUserId, requesterCompanyId]
 		);
 
 		if (targetUserResult.rowCount === 0) {
 			res.status(404).json({
 				status: "error",
-				message: "User to update not found."
-			} satisfies ApiResponse);
+				message: "User to update not found in this company."
+			});
 			return
 		}
+		const targetDbProfile = targetUserResult.rows[0];
+		const currentDbRole = targetDbProfile.role as UserRole;
+		const currentDbHourlyWage = targetDbProfile.hourly_wage;
 
-		const targetUser = targetUserResult.rows[0];
-		const currentRole = targetUser.role;
-
-		// 4. Verify target is in the same company and not an Owner
-		if (targetUser.company_id !== requesterCompanyId) {
-			res.status(404).json({
-				status: "error",
-				message: "User to update not found."
-			} satisfies ApiResponse);
-			return
-		}
-		if (currentRole === UserRole.Owner) {
+		if (currentDbRole === UserRole.Owner) {
 			res.status(403).json({
 				status: "error",
 				message: "Cannot update data for other Owners."
-			} satisfies ApiResponse);
+			});
+			return
+		}
+		if (newRole && newRole !== UserRole.Owner && currentDbRole === UserRole.Owner) {
+			res.status(403).json({
+				status: "error",
+				message: "Owners cannot have their role changed by other Owners via this route."
+			});
 			return
 		}
 
 
-		// 5. Build and Execute Update Query
-		const updates: string[] = [];
-		const params: (string | number | null)[] = [targetUserId, requesterCompanyId];
-		let paramIndex = 3;
+		let authMetaChanged = false;
+		const newAuthMetadataUpdate: Partial<typeof currentAuthMetadata> = {};
+		let roleActuallyChanging = false;
 
-		if (newRole !== undefined && newRole !== currentRole) {
-			updates.push(`role = $${paramIndex++}`);
-			params.push(newRole);
+		if (newRole !== undefined && newRole !== currentAuthRole) {
+			newAuthMetadataUpdate.role = newRole;
+			authMetaChanged = true;
+			roleActuallyChanging = true;
 		}
 
-		if (newHourlyWage !== undefined) {
-			updates.push(`hourly_wage = $${paramIndex++}`);
-			params.push(newHourlyWage);
+		if (authMetaChanged) {
+			const {error: updateAuthError} = await supabase.auth.admin.updateUserById(
+				targetUserId,
+				{user_metadata: {...currentAuthMetadata, ...newAuthMetadataUpdate}}
+			);
+			if (updateAuthError) {
+				console.error(`[Company PATCH User] Supabase auth update error for ${targetUserId}:`, updateAuthError);
+				res.status(500).json({
+					status: "error",
+					message: "Failed to update user role in authentication service. " + updateAuthError.message
+				});
+				return
+			}
 		}
 
+		let wageActuallyChanging = false;
+		if (newHourlyWage !== undefined && newHourlyWage !== currentDbHourlyWage) {
+			const dbUpdateResult = await postgres.query(
+				`UPDATE public."user"
+         SET hourly_wage = $1
+         WHERE id = $2
+           AND company_id = $3`,
+				[newHourlyWage, targetUserId, requesterCompanyId]
+			);
+			if (dbUpdateResult.rowCount > 0) {
+				wageActuallyChanging = true;
+			} else {
+				console.warn(`[Company PATCH User] Hourly wage update for ${targetUserId} affected 0 rows, though user was found.`);
+			}
+		}
 
-		if (updates.length === 0) {
+		if (!roleActuallyChanging && !wageActuallyChanging) {
 			res.status(200).json({
 				status: "success",
-				message: "No changes detected in submitted data."
-			} satisfies ApiResponse);
+				message: "No changes detected or needed for user data."
+			});
 			return
 		}
 
-		const updateQuery = `
-        UPDATE public."user"
-        SET ${updates.join(", ")}
-        WHERE id = $1
-          AND company_id = $2
-		`;
+		const messages: string[] = [];
+		if (roleActuallyChanging) messages.push("User role updated");
+		if (wageActuallyChanging) messages.push("Hourly wage updated");
 
-		const updateResult = await postgres.query(updateQuery, params);
-
-		if (updateResult.rowCount === 0) {
-			res.status(404).json({
-				status: "error",
-				message: "User not found or not in company during final update."
-			} satisfies ApiResponse);
-			return
-		}
-
-		// 6. Send Success Response
 		res.status(200).json({
 			status: "success",
-			message: "User data updated successfully."
-		} satisfies ApiResponse);
+			message: messages.join(" and ") + " successfully."
+		});
+		return
 
 	} catch (error) {
 		next(error);
