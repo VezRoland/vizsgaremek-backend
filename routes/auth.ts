@@ -9,10 +9,11 @@ import {
 	signUpCompanySchema
 } from "../schemas/auth"
 import type { NextFunction } from "express"
-import { AuthApiError, type User } from "@supabase/supabase-js"
+import { AuthApiError } from "@supabase/supabase-js"
 import { UserRole } from "../types/database"
 import type { ApiResponse } from "../types/response"
 import { COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS } from "../lib/constants.ts"
+import type { User as DbUser } from "../types/database";
 
 const router = Router()
 
@@ -277,26 +278,49 @@ router.post("/sign-out", getUserFromCookie, async (req, res, next) => {
 	} satisfies ApiResponse)
 })
 
+interface UserAuthResponseData extends DbUser {
+	company_code?: string;
+}
+
 router.get("/user", getUserFromCookie, async (req, res, next) => {
-	const user = req.user!
+	const authUser = req.user!;
 
 	try {
-		const result = await postgres.query(
+		const userResult = await postgres.query(
 			"SELECT * FROM public.user WHERE id = $1::uuid",
-			[user.id]
-		)
+			[authUser.id]
+		);
 
-		res.setHeader("Cache-Control", `private, max-age=${10 * 60}`)
-		user.updated_at &&
-		res.setHeader("Last-Modified", new Date(user.updated_at).toUTCString())
+		if (userResult.rows.length === 0) {
+			res.status(404).json({
+				status: "error",
+				message: "User profile not found in database."
+			} satisfies ApiResponse);
+			return
+		}
+
+		const userData: UserAuthResponseData = userResult.rows[0];
+
+		if (userData.role === UserRole.Owner && userData.company_id) {
+			const companyResult = await postgres.query(
+				"SELECT code FROM public.company WHERE id = $1::uuid",
+				[userData.company_id]
+			);
+			if (companyResult.rows.length > 0) {
+				userData.company_code = companyResult.rows[0].code;
+			}
+		}
+
+		res.setHeader("Cache-Control", `private, max-age=${10 * 60}`); // 10 minutes
+		if (authUser.updated_at) res.setHeader("Last-Modified", new Date(authUser.updated_at).toUTCString());
 
 		res.json({
 			status: "success",
 			message: "Successfully authenticated user",
-			data: result.rows[0] as User
-		} satisfies ApiResponse<User>)
+			data: userData
+		} satisfies ApiResponse<UserAuthResponseData>);
 	} catch (error) {
-		return next(error)
+		return next(error);
 	}
 })
 
