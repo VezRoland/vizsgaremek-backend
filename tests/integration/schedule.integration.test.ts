@@ -1,8 +1,8 @@
-import { describe, it, expect, afterAll, beforeEach } from "vitest"
+import {describe, it, expect, afterAll, beforeEach} from "vitest"
 import request from "supertest"
-import { Pool } from "pg"
+import {Pool} from "pg"
 import app from "../../index"
-import { UserRole } from "../../types/database"
+import {UserRole} from "../../types/database"
 import {
 	MOCK_OWNER_ID,
 	MOCK_EMPLOYEE_ID,
@@ -16,7 +16,7 @@ const testDbConnectionString = process.env.POSTGRES_URL!
 if (!testDbConnectionString) {
 	throw new Error("POSTGRES_URL environment variable is not set for tests. Make sure .env.test is loaded.")
 }
-const pool = new Pool({ connectionString: testDbConnectionString })
+const pool = new Pool({connectionString: testDbConnectionString})
 
 // --- Mock Auth Cookies (Using the 'auth=TOKEN' format) ---
 const createAuthCookie = (token: string): string => `auth=${token}`
@@ -273,7 +273,7 @@ describe("Schedule API Integration Tests", () => {
 		it("should 401 for unauthenticated user", async () => {
 			const startTime = new Date(Date.now() + 48 * 3600 * 1000)
 			new Date(startTime.getTime() + 8 * 3600 * 1000)
-			const scheduleData = { /* ... */ }
+			const scheduleData = { /* ... */}
 			const response = await request(app).post("/schedule").send(scheduleData)
 			expect(response.status).toBe(401)
 		})
@@ -572,7 +572,7 @@ describe("Schedule API Integration Tests", () => {
 	// =============================================
 	describe("PATCH /schedule/finalize", () => {
 		it("should 401 for unauthenticated user", async () => {
-			const response = await request(app).patch("/schedule/finalize").send({ scheduleIds: [], finalized: true })
+			const response = await request(app).patch("/schedule/finalize").send({scheduleIds: [], finalized: true})
 			expect(response.status).toBe(401)
 		})
 
@@ -581,7 +581,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.patch("/schedule/finalize")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ scheduleIds: [dummyScheduleId], finalized: true })
+				.send({scheduleIds: [dummyScheduleId], finalized: true})
 			expect(response.status).toBe(403)
 		})
 
@@ -597,7 +597,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.patch("/schedule/finalize")
 				.set("Cookie", OWNER_COOKIE)
-				.send({ scheduleIds: [scheduleId], finalized: true })
+				.send({scheduleIds: [scheduleId], finalized: true})
 
 			expect(response.status).toBe(200)
 			expect(response.body.message).toContain("Schedules finalized successfully")
@@ -613,7 +613,7 @@ describe("Schedule API Integration Tests", () => {
 	// =============================================
 	describe("DELETE /schedule", () => {
 		it("should 401 for unauthenticated user", async () => {
-			const response = await request(app).delete("/schedule").send({ scheduleIds: [] })
+			const response = await request(app).delete("/schedule").send({scheduleIds: []})
 			expect(response.status).toBe(401)
 		})
 
@@ -629,7 +629,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.delete("/schedule")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ scheduleIds: [scheduleId] })
+				.send({scheduleIds: [scheduleId]})
 
 			expect(response.status).toBe(200)
 			expect(response.body.message).toContain("Schedules deleted successfully")
@@ -649,7 +649,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.delete("/schedule")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ scheduleIds: [scheduleId] })
+				.send({scheduleIds: [scheduleId]})
 
 			expect(response.status).toBe(403)
 			expect(response.body.status).toBe("error")
@@ -672,7 +672,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.delete("/schedule")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ scheduleIds: [scheduleId] })
+				.send({scheduleIds: [scheduleId]})
 
 			expect(response.status).toBe(403)
 			expect(response.body.message).toContain("Could not delete")
@@ -691,7 +691,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.delete("/schedule")
 				.set("Cookie", OWNER_COOKIE)
-				.send({ scheduleIds: [scheduleId] })
+				.send({scheduleIds: [scheduleId]})
 
 			expect(response.status).toBe(200)
 			expect(response.body.message).toContain("Schedules deleted successfully")
@@ -705,7 +705,7 @@ describe("Schedule API Integration Tests", () => {
 	// =============================================
 	describe("PATCH /schedule/update/:id", () => {
 		it("should 401 for unauthenticated user", async () => {
-			const response = await request(app).patch("/schedule/update/some-uuid").send({ /* --- */ })
+			const response = await request(app).patch("/schedule/update/some-uuid").send({ /* --- */})
 			expect(response.status).toBe(401)
 		})
 
@@ -728,7 +728,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.patch(`/schedule/update/${scheduleId}`)
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ start: newStartTime.toISOString(), end: newEndTime.toISOString() })
+				.send({start: newStartTime.toISOString(), end: newEndTime.toISOString()})
 
 			expect(response.status).toBe(200)
 			expect(response.body.message).toContain("Schedule updated successfully")
@@ -760,7 +760,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.patch(`/schedule/update/${scheduleId}`)
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ start: newStartTime.toISOString(), end: newEndTime.toISOString() })
+				.send({start: newStartTime.toISOString(), end: newEndTime.toISOString()})
 
 			expect(response.status).toBe(403)
 			expect(response.body.message).toContain("permission to modify this schedule")
@@ -784,7 +784,7 @@ describe("Schedule API Integration Tests", () => {
 			const response = await request(app)
 				.patch(`/schedule/update/${scheduleId}`)
 				.set("Cookie", OWNER_COOKIE)
-				.send({ start: newStartTime.toISOString(), end: newEndTime.toISOString() })
+				.send({start: newStartTime.toISOString(), end: newEndTime.toISOString()})
 
 			expect(response.status).toBe(200)
 		})

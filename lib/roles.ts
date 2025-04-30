@@ -1,6 +1,5 @@
 import type {User} from "@supabase/supabase-js"
 import {type Schedule, type Submission, type Ticket, type Training, UserRole} from "../types/database"
-import {verify} from "node:crypto";
 
 type PermissionCheck<Key extends keyof Permissions> =
 	| boolean

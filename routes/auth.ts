@@ -1,14 +1,14 @@
 import { Router } from "express"
 import { supabase } from "../lib/supabase"
 import postgres from "../lib/postgres"
-import { getUserFromCookie } from "../lib/utils" // Keep this import
+import { getUserFromCookie } from "../lib/utils"
 import { z } from "zod"
 import {
 	signInSchema,
 	signUpEmployeeSchema,
 	signUpCompanySchema
 } from "../schemas/auth"
-import type { NextFunction } from "express" // Add Request type
+import type { NextFunction } from "express"
 import { AuthApiError, type User } from "@supabase/supabase-js"
 import { UserRole } from "../types/database"
 import type { ApiResponse } from "../types/response"

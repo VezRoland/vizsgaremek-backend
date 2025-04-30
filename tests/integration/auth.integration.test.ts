@@ -1,8 +1,8 @@
-import { describe, it, expect, afterAll, beforeEach } from "vitest"
+import {describe, it, expect, afterAll, beforeEach} from "vitest"
 import request from "supertest"
-import { Pool } from "pg"
+import {Pool} from "pg"
 import app from "../../index"
-import { UserRole } from "../../types/database"
+import {UserRole} from "../../types/database"
 import {
 	MOCK_EMPLOYEE_ID, MOCK_COMPANY_ID,
 	MOCK_ACCESS_TOKEN, MOCK_REFRESH_TOKEN,
@@ -15,7 +15,7 @@ const testDbConnectionString = process.env.POSTGRES_URL!
 if (!testDbConnectionString) {
 	throw new Error("POSTGRES_URL environment variable is not set for tests.")
 }
-const pool = new Pool({ connectionString: testDbConnectionString })
+const pool = new Pool({connectionString: testDbConnectionString})
 
 // --- Constants ---
 const VALID_COMPANY_CODE = "AUTHCODE"
@@ -87,7 +87,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 422 for invalid input data", async () => {
 			const response = await request(app)
 				.post("/auth/sign-up/company")
-				.send({ email: "invalid", password: "short", name: "N", company_name: "" }) // Invalid data
+				.send({email: "invalid", password: "short", name: "N", company_name: ""}) // Invalid data
 
 			expect(response.status).toBe(422)
 			expect(response.body.status).toBe("error")
@@ -99,7 +99,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail if email already exists", async () => {
 			const response = await request(app)
 				.post("/auth/sign-up/company")
-				.send({ ...validCompanyData, email: "exists@test.com" })
+				.send({...validCompanyData, email: "exists@test.com"})
 
 			expect(response.status).toBe(422) // Match Supabase error code mapping
 			expect(response.body.status).toBe("error")
@@ -130,7 +130,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 422 for invalid input data", async () => {
 			const response = await request(app)
 				.post("/auth/sign-up/employee")
-				.send({ email: "invalid", password: "short", name: "", company_code: "123" }) // Invalid data
+				.send({email: "invalid", password: "short", name: "", company_code: "123"}) // Invalid data
 			expect(response.status).toBe(422)
 			expect(response.body.errors?.fieldErrors).toHaveProperty("email")
 			expect(response.body.errors?.fieldErrors).toHaveProperty("password")
@@ -140,7 +140,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail if email already exists", async () => {
 			const response = await request(app)
 				.post("/auth/sign-up/employee")
-				.send({ ...validEmployeeData, email: "exists@test.com" }) // Use email mock rejects
+				.send({...validEmployeeData, email: "exists@test.com"}) // Use email mock rejects
 			expect(response.status).toBe(422)
 			expect(response.body.errors?.email).toContain("Email is already in use")
 		})
@@ -148,7 +148,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 404 for invalid company code", async () => {
 			const response = await request(app)
 				.post("/auth/sign-up/employee")
-				.send({ ...validEmployeeData, company_code: "INVALIDC" }) // Invalid code
+				.send({...validEmployeeData, company_code: "INVALIDC"}) // Invalid code
 			expect(response.status).toBe(404)
 			expect(response.body.errors?.company_code).toContain("Invalid company code")
 		})
@@ -158,7 +158,7 @@ describe("Auth API Integration Tests", () => {
 	// POST /auth/sign-in
 	// =============================================
 	describe("POST /auth/sign-in", () => {
-		const validCredentials = { email: MOCK_LOGIN_EMAIL, password: MOCK_LOGIN_PASSWORD }
+		const validCredentials = {email: MOCK_LOGIN_EMAIL, password: MOCK_LOGIN_PASSWORD}
 
 		beforeEach(async () => {
 			await pool.query(`INSERT INTO public."user" (id, name, role, company_id, verified, age)
@@ -189,7 +189,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 400/401 for invalid password", async () => {
 			const response = await request(app)
 				.post("/auth/sign-in")
-				.send({ ...validCredentials, password: "wrongpassword" })
+				.send({...validCredentials, password: "wrongpassword"})
 
 			expect(response.status).toBe(400) // Mock returns 400 for invalid_credentials
 			expect(response.body.status).toBe("error")
@@ -200,7 +200,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 400/401 for non-existent email", async () => {
 			const response = await request(app)
 				.post("/auth/sign-in")
-				.send({ email: "nosuchuser@test.com", password: "password123" })
+				.send({email: "nosuchuser@test.com", password: "password123"})
 			expect(response.status).toBe(400) // Mock returns 400
 			expect(response.body.status).toBe("error")
 			expect(response.body.errors?.email).toContain("Invalid credentials")
@@ -209,7 +209,7 @@ describe("Auth API Integration Tests", () => {
 		it("should fail with 422 for invalid input format", async () => {
 			const response = await request(app)
 				.post("/auth/sign-in")
-				.send({ email: "not-an-email", password: "" })
+				.send({email: "not-an-email", password: ""})
 			expect(response.status).toBe(422)
 			expect(response.body.errors?.fieldErrors).toHaveProperty("email")
 			expect(response.body.errors?.fieldErrors).toHaveProperty("password")

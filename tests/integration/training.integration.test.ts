@@ -1,8 +1,8 @@
-import { describe, it, expect, afterAll, beforeEach } from "vitest"
+import {describe, it, expect, afterAll, beforeEach} from "vitest"
 import request from "supertest"
-import { Pool } from "pg"
+import {Pool} from "pg"
 import app from "../../index"
-import { UserRole } from "../../types/database"
+import {UserRole} from "../../types/database"
 import {
 	MOCK_OWNER_ID,
 	MOCK_LEADER_ID,
@@ -21,7 +21,7 @@ const testDbConnectionString = process.env.POSTGRES_URL!
 if (!testDbConnectionString) {
 	throw new Error("POSTGRES_URL environment variable is not set for tests.")
 }
-const pool = new Pool({ connectionString: testDbConnectionString })
+const pool = new Pool({connectionString: testDbConnectionString})
 
 // --- Mock Auth Cookies ---
 const createAuthCookie = (token: string): string => `auth=${token}`
@@ -35,13 +35,13 @@ const mockQuestions = [
 	{
 		id: crypto.randomUUID(),
 		name: "Question 1?",
-		answers: [{ text: "A", correct: true }, { text: "B", correct: false }],
+		answers: [{text: "A", correct: true}, {text: "B", correct: false}],
 		multipleCorrect: false
 	},
 	{
 		id: crypto.randomUUID(),
 		name: "Question 2?",
-		answers: [{ text: "C", correct: false }, { text: "D", correct: true }],
+		answers: [{text: "C", correct: false}, {text: "D", correct: true}],
 		multipleCorrect: false
 	}
 ]
@@ -444,7 +444,7 @@ describe("Training API Integration Tests", () => {
 		})
 
 		it("should 400 for invalid training data (Zod)", async () => {
-			const invalidTrainingData = { name: "N", description: "d", role: 99, questions: [] }
+			const invalidTrainingData = {name: "N", description: "d", role: 99, questions: []}
 			if (!fs.existsSync(dummyFilePath)) {
 				fs.writeFileSync(dummyFilePath, "dummy")
 			}
@@ -526,8 +526,8 @@ describe("Training API Integration Tests", () => {
 
 		beforeEach(async () => {
 			const specificQuestions = [
-				{ id: "q1-uuid", name: "Q1", answers: [{ text: "A", correct: true }, { text: "B", correct: false }] },
-				{ id: "q2-uuid", name: "Q2", answers: [{ text: "C", correct: false }, { text: "D", correct: true }] }
+				{id: "q1-uuid", name: "Q1", answers: [{text: "A", correct: true}, {text: "B", correct: false}]},
+				{id: "q2-uuid", name: "Q2", answers: [{text: "C", correct: false}, {text: "D", correct: true}]}
 			]
 			empTrainingId = await createTrainingInDb("Submit Emp Training", "Desc", UserRole.Employee, MOCK_COMPANY_ID, specificQuestions, "dummy/emp.pdf")
 			leaderTrainingId = await createTrainingInDb("Submit Leader Training", "Desc", UserRole.Leader, MOCK_COMPANY_ID, specificQuestions, "dummy/emp.pdf")
@@ -537,8 +537,8 @@ describe("Training API Integration Tests", () => {
 			validSubmissionData = {
 				id: empTrainingId,
 				questions: [
-					{ id: "q1-uuid", answers: ["A"] }, // Correct answer for Q1
-					{ id: "q2-uuid", answers: ["C"] }  // Incorrect answer for Q2
+					{id: "q1-uuid", answers: ["A"]}, // Correct answer for Q1
+					{id: "q2-uuid", answers: ["C"]}  // Incorrect answer for Q2
 				]
 			}
 		})
@@ -558,7 +558,7 @@ describe("Training API Integration Tests", () => {
 		})
 
 		it("should 400 for invalid submission data (Zod)", async () => {
-			const invalidData = { id: empTrainingId, questions: [{ id: "q1-uuid", answers: [] }] }
+			const invalidData = {id: empTrainingId, questions: [{id: "q1-uuid", answers: []}]}
 			const response = await request(app)
 				.post(`/training/submission/${empTrainingId}`)
 				.set("Cookie", EMPLOYEE_COOKIE)
@@ -602,8 +602,8 @@ describe("Training API Integration Tests", () => {
 			const updatedSubmissionData = {
 				id: empTrainingId,
 				questions: [
-					{ id: "q1-uuid", answers: ["B"] },
-					{ id: "q2-uuid", answers: ["D"] }
+					{id: "q1-uuid", answers: ["B"]},
+					{id: "q2-uuid", answers: ["D"]}
 				]
 			}
 			const response = await request(app)

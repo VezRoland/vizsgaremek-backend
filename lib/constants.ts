@@ -1,4 +1,4 @@
-import type { CookieOptions } from "express";
+import type {CookieOptions} from "express";
 
 export const COOKIE_OPTIONS: CookieOptions = {
 	httpOnly: true,

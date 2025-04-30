@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest"
-import { hasPermission } from "../../lib/roles"
-import { UserRole } from "../../types/database"
-import { createMockUser } from "../utility/testUtils"
+import {describe, it, expect} from "vitest"
+import {hasPermission} from "../../lib/roles"
+import {UserRole} from "../../types/database"
+import {createMockUser} from "../utility/testUtils"
 
 describe("hasPermission Function", () => {
 	// --- Mock Users ---
@@ -21,17 +21,17 @@ describe("hasPermission Function", () => {
 
 	// --- Ticket Permissions ---
 	describe("Ticket Permissions", () => {
-		const ownTicketData = { userId: employeeId, companyId: companyId }
-		const companyTicketData = { userId: ownerId, companyId: companyId }
-		const adminTicketData = { userId: adminId, companyId: null }
-		const leaderOwnTicketData = { userId: leaderId, companyId: companyId }
+		const ownTicketData = {userId: employeeId, companyId: companyId}
+		const companyTicketData = {userId: ownerId, companyId: companyId}
+		const adminTicketData = {userId: adminId, companyId: null}
+		const leaderOwnTicketData = {userId: leaderId, companyId: companyId}
 
 		// Employee Checks
 		it("Employee: view own, create company/admin, !delete, !close, respond own", () => {
 			expect(hasPermission(employeeUser, "tickets", "view", ownTicketData)).toBe(true)
 			expect(hasPermission(employeeUser, "tickets", "view", companyTicketData)).toBe(false)
-			expect(hasPermission(employeeUser, "tickets", "create", { userId: employeeId, companyId: companyId })).toBe(true)
-			expect(hasPermission(employeeUser, "tickets", "create", { userId: employeeId, companyId: null })).toBe(true) // To admin
+			expect(hasPermission(employeeUser, "tickets", "create", {userId: employeeId, companyId: companyId})).toBe(true)
+			expect(hasPermission(employeeUser, "tickets", "create", {userId: employeeId, companyId: null})).toBe(true) // To admin
 			expect(hasPermission(employeeUser, "tickets", "delete", ownTicketData)).toBe(false)
 			expect(hasPermission(employeeUser, "tickets", "close", ownTicketData)).toBe(false)
 			expect(hasPermission(employeeUser, "tickets", "respond", ownTicketData)).toBe(true)
@@ -43,8 +43,8 @@ describe("hasPermission Function", () => {
 			expect(hasPermission(leaderUser, "tickets", "view", leaderOwnTicketData)).toBe(true)
 			expect(hasPermission(leaderUser, "tickets", "view", ownTicketData)).toBe(true) // Employee in same company
 			expect(hasPermission(leaderUser, "tickets", "view", adminTicketData)).toBe(false)
-			expect(hasPermission(leaderUser, "tickets", "create", { userId: leaderId, companyId: companyId })).toBe(true)
-			expect(hasPermission(leaderUser, "tickets", "create", { userId: leaderId, companyId: null })).toBe(true) // To admin
+			expect(hasPermission(leaderUser, "tickets", "create", {userId: leaderId, companyId: companyId})).toBe(true)
+			expect(hasPermission(leaderUser, "tickets", "create", {userId: leaderId, companyId: null})).toBe(true) // To admin
 			expect(hasPermission(leaderUser, "tickets", "delete", companyTicketData)).toBe(true)
 			expect(hasPermission(leaderUser, "tickets", "close", companyTicketData)).toBe(true)
 			expect(hasPermission(leaderUser, "tickets", "respond", leaderOwnTicketData)).toBe(true)
@@ -53,11 +53,11 @@ describe("hasPermission Function", () => {
 
 		// Owner Checks
 		it("Owner: view own/company, create company/admin, delete/close company, respond own/company", () => {
-			const ownerOwnTicket = { userId: ownerId, companyId: companyId }
+			const ownerOwnTicket = {userId: ownerId, companyId: companyId}
 			expect(hasPermission(ownerUser, "tickets", "view", ownerOwnTicket)).toBe(true)
 			expect(hasPermission(ownerUser, "tickets", "view", ownTicketData)).toBe(true) // Employee in owner's company
-			expect(hasPermission(ownerUser, "tickets", "create", { userId: ownerId, companyId: companyId })).toBe(true)
-			expect(hasPermission(ownerUser, "tickets", "create", { userId: ownerId, companyId: null })).toBe(true) // To admin
+			expect(hasPermission(ownerUser, "tickets", "create", {userId: ownerId, companyId: companyId})).toBe(true)
+			expect(hasPermission(ownerUser, "tickets", "create", {userId: ownerId, companyId: null})).toBe(true) // To admin
 			expect(hasPermission(ownerUser, "tickets", "delete", companyTicketData)).toBe(true)
 			expect(hasPermission(ownerUser, "tickets", "close", companyTicketData)).toBe(true)
 			expect(hasPermission(ownerUser, "tickets", "respond", ownerOwnTicket)).toBe(true)
@@ -77,11 +77,11 @@ describe("hasPermission Function", () => {
 
 	// --- Schedule Permissions ---
 	describe("Schedule Permissions", () => {
-		const employeeSchedule = { userId: employeeId, companyId: companyId, finalized: false }
-		const leaderSchedule = { userId: leaderId, companyId: companyId, finalized: false }
-		const ownerSchedule = { userId: ownerId, companyId: companyId, finalized: false }
-		const finalizedEmployeeSchedule = { userId: employeeId, companyId: companyId, finalized: true }
-		const otherCompanySchedule = { userId: otherEmployeeId, companyId: otherCompanyId, finalized: false }
+		const employeeSchedule = {userId: employeeId, companyId: companyId, finalized: false}
+		const leaderSchedule = {userId: leaderId, companyId: companyId, finalized: false}
+		const ownerSchedule = {userId: ownerId, companyId: companyId, finalized: false}
+		const finalizedEmployeeSchedule = {userId: employeeId, companyId: companyId, finalized: true}
+		const otherCompanySchedule = {userId: otherEmployeeId, companyId: otherCompanyId, finalized: false}
 
 		// --- View ---
 		it("View: Employee views own; Leader/Owner view company; Admin views none", () => {
@@ -219,9 +219,9 @@ describe("hasPermission Function", () => {
 
 	// --- Training Permissions ---
 	describe("Training Permissions", () => {
-		const employeeTrainingData = { companyId: companyId, role: UserRole.Employee }
-		const leaderTrainingData = { companyId: companyId, role: UserRole.Leader }
-		const otherCompanyTraining = { companyId: otherCompanyId, role: UserRole.Employee }
+		const employeeTrainingData = {companyId: companyId, role: UserRole.Employee}
+		const leaderTrainingData = {companyId: companyId, role: UserRole.Leader}
+		const otherCompanyTraining = {companyId: otherCompanyId, role: UserRole.Employee}
 
 		// Employee
 		it("Employee: View Employee training in company; No CUD", () => {
@@ -262,11 +262,11 @@ describe("hasPermission Function", () => {
 
 	// --- Submission Permissions ---
 	describe("Submission Permissions", () => {
-		const employeeSubmittingSelf = { companyId: companyId, role: UserRole.Employee, userId: employeeId }
-		const employeeSubmittingLeaderTraining = { companyId: companyId, role: UserRole.Leader, userId: employeeId } // Employee trying to submit Leader training
-		const leaderSubmittingEmployee = { companyId: companyId, role: UserRole.Employee, userId: employeeId } // Leader viewing Employee submission
-		const leaderSubmittingLeader = { companyId: companyId, role: UserRole.Leader, userId: leaderId } // Leader viewing/submitting own Leader training
-		const otherCompanySubmission = { companyId: otherCompanyId, role: UserRole.Employee, userId: otherEmployeeId }
+		const employeeSubmittingSelf = {companyId: companyId, role: UserRole.Employee, userId: employeeId}
+		const employeeSubmittingLeaderTraining = {companyId: companyId, role: UserRole.Leader, userId: employeeId} // Employee trying to submit Leader training
+		const leaderSubmittingEmployee = {companyId: companyId, role: UserRole.Employee, userId: employeeId} // Leader viewing Employee submission
+		const leaderSubmittingLeader = {companyId: companyId, role: UserRole.Leader, userId: leaderId} // Leader viewing/submitting own Leader training
+		const otherCompanySubmission = {companyId: otherCompanyId, role: UserRole.Employee, userId: otherEmployeeId}
 
 		// Employee
 		it("Employee: View own subs; Create for Employee training in company", () => {

@@ -1,8 +1,8 @@
-import { describe, it, expect, afterAll, beforeEach } from "vitest"
+import {describe, it, expect, afterAll, beforeEach} from "vitest"
 import request from "supertest"
-import { Pool } from "pg"
+import {Pool} from "pg"
 import app from "../../index"
-import { UserRole } from "../../types/database"
+import {UserRole} from "../../types/database"
 import {
 	MOCK_OWNER_ID,
 	MOCK_LEADER_ID,
@@ -16,7 +16,7 @@ const testDbConnectionString = process.env.POSTGRES_URL!
 if (!testDbConnectionString) {
 	throw new Error("POSTGRES_URL environment variable is not set for tests. Make sure .env.test is loaded.")
 }
-const pool = new Pool({ connectionString: testDbConnectionString })
+const pool = new Pool({connectionString: testDbConnectionString})
 
 // --- Mock Auth Cookies ---
 const createAuthCookie = (token: string): string => `auth=${token}`
@@ -106,7 +106,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ title: "T", content: "Short", company_id: MOCK_COMPANY_ID }) // Invalid title/content length
+				.send({title: "T", content: "Short", company_id: MOCK_COMPANY_ID}) // Invalid title/content length
 			expect(response.status).toBe(400)
 			expect(response.body.message).toContain("Invalid data")
 		})
@@ -115,7 +115,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ title: TICKET_TITLE, content: TICKET_CONTENT, company_id: MOCK_COMPANY_ID })
+				.send({title: TICKET_TITLE, content: TICKET_CONTENT, company_id: MOCK_COMPANY_ID})
 			expect(response.status).toBe(201)
 			expect(response.body.message).toContain("Ticket created successfully")
 		})
@@ -124,7 +124,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ title: TICKET_TITLE, content: TICKET_CONTENT, company_id: null })
+				.send({title: TICKET_TITLE, content: TICKET_CONTENT, company_id: null})
 			expect(response.status).toBe(201)
 		})
 
@@ -133,7 +133,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ title: TICKET_TITLE, content: TICKET_CONTENT, company_id: otherCompanyId })
+				.send({title: TICKET_TITLE, content: TICKET_CONTENT, company_id: otherCompanyId})
 			expect(response.status).toBe(403)
 			expect(response.body.message).toContain("You are not authorized to create a ticket!")
 		})
@@ -142,7 +142,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", OWNER_COOKIE)
-				.send({ title: TICKET_TITLE, content: TICKET_CONTENT, company_id: MOCK_COMPANY_ID })
+				.send({title: TICKET_TITLE, content: TICKET_CONTENT, company_id: MOCK_COMPANY_ID})
 			expect(response.status).toBe(201)
 		})
 
@@ -150,7 +150,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post("/ticket/")
 				.set("Cookie", ADMIN_COOKIE)
-				.send({ title: TICKET_TITLE, content: TICKET_CONTENT, company_id: null })
+				.send({title: TICKET_TITLE, content: TICKET_CONTENT, company_id: null})
 			expect(response.status).toBe(403)
 			expect(response.body.message).toContain("not authorized to create a ticket")
 		})
@@ -367,7 +367,7 @@ describe("Ticket API Integration Tests", () => {
 	describe("POST /ticket/:id/response", () => {
 		it("should 401 for unauthenticated user", async () => {
 			const ticketId = await createTicketInDb(MOCK_EMPLOYEE_ID, MOCK_COMPANY_ID)
-			const response = await request(app).post(`/ticket/${ticketId}/response`).send({ content: RESPONSE_CONTENT })
+			const response = await request(app).post(`/ticket/${ticketId}/response`).send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(401)
 		})
 
@@ -376,7 +376,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${nonExistentId}/response`)
 				.set("Cookie", OWNER_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(404)
 		})
 
@@ -385,7 +385,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ content: "Too short" }) // Content too short
+				.send({content: "Too short"}) // Content too short
 			expect(response.status).toBe(400)
 		})
 
@@ -394,7 +394,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(201)
 			const dbCheck = await pool.query("SELECT COUNT(*) FROM ticket_response WHERE ticket_id = $1 AND user_id = $2", [ticketId, MOCK_EMPLOYEE_ID])
 			expect(dbCheck.rows[0].count).toBe("1")
@@ -405,7 +405,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", EMPLOYEE_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(404)
 		})
 
@@ -414,7 +414,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", OWNER_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(201)
 		})
 
@@ -423,7 +423,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", ADMIN_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(201)
 		})
 
@@ -432,7 +432,7 @@ describe("Ticket API Integration Tests", () => {
 			const response = await request(app)
 				.post(`/ticket/${ticketId}/response`)
 				.set("Cookie", ADMIN_COOKIE)
-				.send({ content: RESPONSE_CONTENT })
+				.send({content: RESPONSE_CONTENT})
 			expect(response.status).toBe(404)
 		})
 	})

@@ -1,15 +1,15 @@
 export interface FieldError<T> {
-  error: boolean,
+	error: boolean,
 	type: "field"
 	fields: { [P in keyof T]?: T[P] }
 }
 
 export interface MessageError {
-  error: boolean,
+	error: boolean,
 	type: "message",
-  messageType: MessageErrorType,
+	messageType: MessageErrorType,
 	message: string,
-  description?: string
+	description?: string
 }
 
 export type MessageErrorType = "error" | "warning" | "info" | "success"

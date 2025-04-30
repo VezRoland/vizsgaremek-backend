@@ -810,40 +810,74 @@ Manages company-level settings. Found in `routes/company.ts`.
 
 #### `GET /company/users`
 
-* **Description:** Fetches users within the company, filterable by name and paginated. Excludes the requesting user and filters based on role hierarchy (Leaders see Employees, Owners see Leaders and Employees).
+* **Description:** Fetches users within the company, excluding the requesting user and filtering based on role hierarchy (Leaders see Leaders and Employees, Owners see everyone). Supports optional name filtering (case-insensitive, partial match) and optional pagination. If the `page` query parameter is omitted, all matching users are returned.
 * **Permissions:** Leader or Owner ([See Table](#6-role-permissions-summary): `company:view`). Employees are denied.
 * **Query Parameters:**
-  * `name` (optional): Filter users whose name contains the provided string (case-insensitive).
-  * `limit` (optional, default: 20): Number of users per page.
-  * `page` (optional, default: 1): Page number to retrieve.
-* **`curl` Example:**
+  * `name` (optional): Filter users whose name contains the provided string.
+  * `page` (optional): Page number to retrieve. If provided (even `page=1`), triggers paginated response. If omitted, returns all matching users.
+  * `limit` (optional, default: 20): Number of users per page. Only used if `page` is provided.
+* **`curl` Example (Get All):**
     ```bash
-    # Fetch first page of users with name containing "Smith"
-    curl -X GET "http://localhost:3000/company/users?name=Smith&page=1" \
+    curl -X GET "http://localhost:3000/company/users" \
          -H "Cookie: auth=OWNER_TOKEN_HERE"
     ```
-* **Success Response (200 OK):**
+* **`curl` Example (Paginated & Filtered):**
+    ```bash
+    curl -X GET "http://localhost:3000/company/users?name=Seed&page=1&limit=10" \
+         -H "Cookie: auth=OWNER_TOKEN_HERE"
+    ```
+* **Success Response (200 OK - No Pagination Requested):**
     ```json
     {
       "status": "ignore",
       "message": "Company users fetched successfully.",
-      "data": [
-        {
-          "id": "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d",
-          "name": "Seed Leader",
-          "role": 2,
-          "avatar_url": null,
-          "verified": true
-        },
-        {
-          "id": "f0744a3b-71d4-4d96-9e70-b2f3d4acb727",
-          "name": "Seed Employee",
-          "role": 1,
-          "avatar_url": null,
-          "verified": true
+      "data": {
+         "users": [
+           // Array of User objects
+           {
+             "id": "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d",
+             "name": "Seed Leader",
+             "age": 19,
+             "hourly_wage": 2350,
+             "role": 2,
+             "company_id": "A company ID that I am not going to write out yet again.",
+             "verified": true,
+             "created_at": "2025-04-20T08:30:00.000Z",
+             "avatar_url": null
+           }
+           // ... other users
+         ]
         }
-        // ... other users
-      ]
+    }
+    ```
+* **Success Response (200 OK - Pagination Requested):**
+    ```json
+    {
+      "status": "ignore",
+      "message": "Company users fetched successfully.",
+      "data": {
+         "users": [
+           // Array of User objects for the current page
+           {
+             "id": "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d",
+             "name": "Seed Leader",
+             "age": 19,
+             "hourly_wage": 2350,
+             "role": 2,
+             "company_id": "A company ID that I am not going to write out yet again.",
+             "verified": true,
+             "created_at": "2025-04-20T08:30:00.000Z",
+             "avatar_url": null
+           }
+           // ... other users for this page
+         ],
+         "pagination": {
+           "totalPages": 3,
+           "currentPage": 1,
+           "limit": 10,
+           "totalItems": 29
+         }
+       }
     }
     ```
 * **Error Responses:**
@@ -857,7 +891,7 @@ Manages company-level settings. Found in `routes/company.ts`.
 
 #### `GET /company/user/:userId`
 
-* **Description:** Fetches specific details (id, name role, hourly wage) for a single user within the company. Access is restricted based on the requester's role and relationship to the target user.
+* **Description:** Fetches specific details (id, name, role, hourly wage) for a single user within the company. Access is restricted based on the requester's role and relationship to the target user.
 * **Permissions:** Authenticated User.
   * Employee: Can only view their own data.
   * Leader/Owner: Can view data for users in the same company whose role is less than or equal to their own.
@@ -992,6 +1026,74 @@ Manages user-specific settings. Found in `routes/user.ts`.
     }
     ```
 * **Error Responses:** See table in previous response section (includes 400 for file issues - missing, type, size).
+
+#### `PATCH /user/name`
+
+* **Description:** Updates the name for the currently authenticated user. This updates the name in the Supabase Auth metadata, and the change is synced to the `public.user` table via a database trigger.
+* **Permissions:** Authenticated User (Any role updates their own name).
+* **Request Body Example:**
+    ```json
+    {
+      "name": "New User Name"
+    }
+    ```
+* **`curl` Example:**
+    ```bash
+    curl -X PATCH http://localhost:3000/user/name \
+         -H "Content-Type: application/json" \
+         -H "Cookie: auth=VALID_TOKEN_HERE" \
+         -d '{ "name": "New User Name" }'
+    ```
+* **Success Response (200 OK):**
+    ```json
+    {
+      "status": "success",
+      "message": "User name updated successfully.",
+      "data": { "name": "New User Name" }
+    }
+    ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                          | Example Response Body                                                              |
+    | :---------- | :----------------------------------------------- | :--------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                | (Handled by `getUserFromCookie`)                                                   |
+  | `400`       | Validation Error (name too short/long/missing)   | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
+  | `404`       | User not found in Supabase Auth during update     | `{"status": "error", "message": "User not found during update process."}`        |
+  | `500`       | Supabase API error or unexpected server error   | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`|
+
+#### `PATCH /user/age`
+
+* **Description:** Updates the age for the currently authenticated user. This directly updates the `age` column in the `public.user` table.
+* **Permissions:** Authenticated User (Any role updates their own age).
+* **Request Body Example:**
+    ```json
+    {
+      "age": 35
+    }
+    ```
+* **`curl` Example:**
+    ```bash
+    curl -X PATCH http://localhost:3000/user/age \
+         -H "Content-Type: application/json" \
+         -H "Cookie: auth=VALID_TOKEN_HERE" \
+         -d '{ "age": 35 }'
+    ```
+* **Success Response (200 OK):**
+    ```json
+    {
+      "status": "success",
+      "message": "User age updated successfully.",
+      "data": { "age": 35 }
+    }
+    ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                          | Example Response Body                                                              |
+    | :---------- | :----------------------------------------------- | :--------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                | (Handled by `getUserFromCookie`)                                                   |
+  | `400`       | Validation Error (age missing, wrong type, range)| `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
+  | `404`       | User not found in `public.user` table          | `{"status": "error", "message": "User not found in public table."}`                |
+  | `500`       | Database error or unexpected server error       | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`|
 
 ---
 
@@ -1155,12 +1257,12 @@ Vitest configuration (`vitest.config.ts`) includes setup files (`tests/loadEnv.t
 * **Unit Tests:**
   * `tests/lib/roles.test.ts`: Validates the core `hasPermission` logic against various role/resource/action scenarios.
 * **Integration Tests (`tests/integration/`):** Use `supertest` to test the API endpoints by simulating HTTP requests and verifying responses and database side-effects. Supabase Auth/Storage calls are mocked (see `tests/setup.ts`).
-  * `auth.integration.test.ts`
-  * `company.integration.test.ts`
-  * `schedule.integration.test.ts`
-  * `ticket.integration.test.ts`
-  * `training.integration.test.ts`
-  * `user.integration.test.ts`
+  * `auth.integration.test.ts`: Covers user sign-up (company/employee), sign-in, sign-out, fetching authenticated user data, and token refresh logic via middleware.
+  * `company.integration.test.ts`: Covers company name updates, user listing (including pagination and filtering), fetching specific user details, user verification, and owner updating user roles/wages.
+  * `schedule.integration.test.ts`: Covers fetching schedule views (weekly overview, hourly details), creating schedules (including constraint validation like overlaps, rest periods, max hours, age restrictions), fetching users for scheduling, finalizing schedules, deleting, and updating schedules.
+  * `ticket.integration.test.ts`: Covers creating tickets (for company or admin), listing tickets based on role permissions, fetching single ticket details (with optional responses), updating ticket status (closing/opening), and adding/retrieving ticket responses.
+  * `training.integration.test.ts`: Covers listing available trainings (role-based, active/completed status), fetching submission results (general summaries and detailed test results), fetching individual training details (including questions for active tests and file URLs for inactive ones), creating new trainings with file uploads, starting trainings, and submitting answers.
+  * `user.integration.test.ts`: Covers user profile avatar uploads, user name updates, and user age updates.
 
 **Coverage Goal:** While aiming for high (~100%) coverage, the actual percentage requires a coverage reporting tool. The existing tests provide significant coverage across all API modules.
 
