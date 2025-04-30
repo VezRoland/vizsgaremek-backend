@@ -4,9 +4,10 @@ import { Pool } from "pg"
 import app from "../../index"
 import { UserRole } from "../../types/database"
 import {
-	MOCK_EMPLOYEE_ID,
-	MOCK_COMPANY_ID,
-	MOCK_ACCESS_TOKEN
+	MOCK_EMPLOYEE_ID, MOCK_COMPANY_ID,
+	MOCK_ACCESS_TOKEN, MOCK_REFRESH_TOKEN,
+	MOCK_ACCESS_TOKEN_2, MOCK_REFRESH_TOKEN_2,
+	MOCK_LOGIN_EMAIL, MOCK_LOGIN_PASSWORD
 } from "../utility/testUtils"
 
 // --- Test Database Connection ---
@@ -16,12 +17,8 @@ if (!testDbConnectionString) {
 }
 const pool = new Pool({ connectionString: testDbConnectionString })
 
-// --- Mock Auth Cookies ---
-const createAuthCookie = (token: string): string => `auth=${token}`
-const LOGGED_IN_EMPLOYEE_COOKIE = createAuthCookie("TEST_EMPLOYEE_TOKEN")
-
 // --- Constants ---
-const VALID_COMPANY_CODE = "AUTHCODE" // Use a predictable code
+const VALID_COMPANY_CODE = "AUTHCODE"
 
 // --- Test Suite Setup/Teardown ---
 beforeEach(async () => {
@@ -43,6 +40,20 @@ afterAll(async () => {
 	await pool.end()
 	console.log("Test DB pool closed (auth tests).")
 })
+
+const getCookies = (response: request.Response): Record<string, string> => {
+	const cookies: Record<string, string> = {}
+	const setCookieHeaders = response.headers["set-cookie"]
+	if (setCookieHeaders) {
+		setCookieHeaders.forEach((cookieString: string) => {
+			const parts = cookieString.split(";")[0].split("=")
+			if (parts.length === 2) {
+				cookies[parts[0].trim()] = parts[1].trim()
+			}
+		})
+	}
+	return cookies
+}
 
 // --- Tests ---
 describe("Auth API Integration Tests", () => {
@@ -147,7 +158,7 @@ describe("Auth API Integration Tests", () => {
 	// POST /auth/sign-in
 	// =============================================
 	describe("POST /auth/sign-in", () => {
-		const validCredentials = { email: "employee@test.com", password: "password123" } // Matches mock success case
+		const validCredentials = { email: MOCK_LOGIN_EMAIL, password: MOCK_LOGIN_PASSWORD }
 
 		beforeEach(async () => {
 			await pool.query(`INSERT INTO public."user" (id, name, role, company_id, verified, age)
@@ -155,20 +166,24 @@ describe("Auth API Integration Tests", () => {
 				[MOCK_EMPLOYEE_ID, "Login User", UserRole.Employee, MOCK_COMPANY_ID, true, 25])
 		})
 
-		it("should successfully sign in with valid credentials", async () => {
+		it("should successfully sign in and set auth + refresh cookies", async () => {
 			const response = await request(app)
 				.post("/auth/sign-in")
 				.send(validCredentials)
 
 			expect(response.status).toBe(200)
 			expect(response.body.status).toBe("success")
-			// Check if the 'auth' cookie was set in the response
-			const cookies = response.headers["set-cookie"]
-			expect(cookies).toBeDefined()
-			expect(cookies![0]).toContain(`auth=${MOCK_ACCESS_TOKEN}`) // Check name and mock token value
-			expect(cookies![0]).toContain("HttpOnly")
-			expect(cookies![0]).toContain("Secure")
-			expect(cookies![0]).toContain("SameSite=None")
+			const cookiesHeader = response.headers["set-cookie"]
+			expect(cookiesHeader).toBeInstanceOf(Array)
+			expect(cookiesHeader!.length).toBeGreaterThanOrEqual(2)
+
+			// Check auth cookie
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`auth=${MOCK_ACCESS_TOKEN};`))).toBe(true)
+			expect(cookiesHeader!.find(cookie => cookie.startsWith(`auth=`))).toMatch(/Max-Age=[1-9][0-9]*/) // Check Max-Age is positive
+
+			// Check refresh cookie
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`refresh=${MOCK_REFRESH_TOKEN};`))).toBe(true)
+			expect(cookiesHeader!.find(cookie => cookie.startsWith(`refresh=`))).toContain("Max-Age=604800") // Check 7 day expiry
 		})
 
 		it("should fail with 400/401 for invalid password", async () => {
@@ -202,21 +217,79 @@ describe("Auth API Integration Tests", () => {
 	})
 
 	// =============================================
+	// Token Refresh via Middleware Tests
+	// =============================================
+	describe("Token Refresh via Middleware", () => {
+		beforeEach(async () => {
+			await pool.query(`INSERT INTO public."user" (id, name, role, company_id, verified, age)
+                        VALUES ($1, $2, $3, $4, $5, $6)`,
+				[MOCK_EMPLOYEE_ID, "Refresh Test User", UserRole.Employee, MOCK_COMPANY_ID, true, 25])
+		})
+
+		it("should succeed and set new cookies if only valid refresh token is provided", async () => {
+			const response = await request(app)
+				.get("/auth/user")
+				.set("Cookie", [`refresh=${MOCK_REFRESH_TOKEN}`])
+
+			expect(response.status).toBe(200)
+			expect(response.body.data.id).toBe(MOCK_EMPLOYEE_ID)
+
+			// Check NEW cookies are set
+			const responseCookies = getCookies(response)
+			expect(responseCookies["auth"]).toBe(MOCK_ACCESS_TOKEN_2)
+			expect(responseCookies["refresh"]).toBe(MOCK_REFRESH_TOKEN_2)
+		})
+
+		it("should fail (401) if only an invalid refresh token is provided", async () => {
+			const response = await request(app)
+				.get("/auth/user")
+				.set("Cookie", ["refresh=INVALID_REFRESH_TOKEN"])
+
+			expect(response.status).toBe(401)
+
+			const cookiesHeader = response.headers["set-cookie"]
+			expect(cookiesHeader).toBeDefined()
+			// Check refresh cookie IS cleared
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`refresh=;`) && cookie.includes("Expires="))).toBe(true)
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`auth=;`) && cookie.includes("Expires="))).toBe(true)
+		})
+
+		it("should fail (401) if no auth or refresh token is provided", async () => {
+			const response = await request(app).get("/auth/user")
+			expect(response.status).toBe(401)
+		})
+
+		it("should fail (401) if auth token is invalid and refresh token is missing", async () => {
+			const response = await request(app)
+				.get("/auth/user")
+				.set("Cookie", ["auth=INVALID_ACCESS_TOKEN"]) // Only invalid auth token
+
+			expect(response.status).toBe(401)
+			const cookiesHeader = response.headers["set-cookie"]
+			expect(cookiesHeader).toBeDefined()
+			// Check auth cookie is cleared
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`auth=;`) && cookie.includes("Expires="))).toBe(true)
+		})
+	})
+
+	// =============================================
 	// POST /auth/sign-out
 	// =============================================
 	describe("POST /auth/sign-out", () => {
-		it("should successfully sign out an authenticated user", async () => {
+		it("should successfully sign out and clear BOTH cookies", async () => {
 			const response = await request(app)
 				.post("/auth/sign-out")
-				.set("Cookie", LOGGED_IN_EMPLOYEE_COOKIE)
+				.set("Cookie", [`auth=${MOCK_ACCESS_TOKEN}`, `refresh=${MOCK_REFRESH_TOKEN}`])
 
 			expect(response.status).toBe(200)
 			expect(response.body.status).toBe("success")
-			// Check that the cookie is cleared
-			const cookies = response.headers["set-cookie"]
-			expect(cookies).toBeDefined()
-			expect(cookies![0]).toContain("auth=;") // Check for empty value
-			expect(cookies![0]).toContain("Expires=")
+
+			const cookiesHeader = response.headers["set-cookie"]
+			expect(cookiesHeader).toBeDefined()
+			expect(cookiesHeader!.length).toBeGreaterThanOrEqual(2)
+
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`auth=;`) && cookie.includes("Expires="))).toBe(true)
+			expect(cookiesHeader!.some(cookie => cookie.startsWith(`refresh=;`) && cookie.includes("Expires="))).toBe(true)
 		})
 
 		it("should fail with 401 for unauthenticated user", async () => {
@@ -238,7 +311,7 @@ describe("Auth API Integration Tests", () => {
 		it("should return user data for an authenticated user", async () => {
 			const response = await request(app)
 				.get("/auth/user")
-				.set("Cookie", LOGGED_IN_EMPLOYEE_COOKIE)
+				.set("Cookie", [`auth=${MOCK_ACCESS_TOKEN}`])
 
 			expect(response.status).toBe(200)
 			expect(response.body.status).toBe("success")
@@ -249,7 +322,6 @@ describe("Auth API Integration Tests", () => {
 			expect(response.body.data.company_id).toBe(MOCK_COMPANY_ID)
 			expect(response.body.data.age).toBe(28)
 			expect(response.body.data.avatar_url).toBe("http://avatar.url/me.jpg")
-			// Check Cache-Control header
 			expect(response.headers["cache-control"]).toContain("private")
 			expect(response.headers["cache-control"]).toContain("max-age=600")
 		})
