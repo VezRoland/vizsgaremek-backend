@@ -1,5 +1,6 @@
-import type { User } from "@supabase/supabase-js"
-import { type Schedule, type Submission, type Ticket, type Training, UserRole } from "../types/database"
+import type {User} from "@supabase/supabase-js"
+import {type Schedule, type Submission, type Ticket, type Training, UserRole} from "../types/database"
+import {verify} from "node:crypto";
 
 type PermissionCheck<Key extends keyof Permissions> =
 	| boolean
@@ -14,7 +15,9 @@ type RolesWithPermissions = {
 }
 
 interface CompanyData {
-	id: string;
+	companyId: string | null;
+	role: UserRole;
+	userId: string;
 }
 
 type Permissions = {
@@ -36,7 +39,7 @@ type Permissions = {
 	},
 	company: {
 		dataType: CompanyData,
-		action: "updateName" | "updateLogo"
+		action: "updateName" | "updateLogo" | "view" | "verify" | "update"
 	}
 }
 
@@ -69,6 +72,9 @@ const ROLES = {
 		company: {
 			updateName: false, // Admins cannot update company name
 			updateLogo: false, // Admins cannot update company logo
+			view: false, // Admins cannot view company
+			verify: false, // Admins cannot verify company
+			update: false // Admins cannot update company
 		}
 	},
 	[UserRole.Owner]: {
@@ -97,8 +103,11 @@ const ROLES = {
 			create: (user, data) => user.user_metadata.company_id === data.companyId // Owners can only create submissions in their company
 		},
 		company: {
-			updateName: (user, data) => user.user_metadata.company_id === data.id, // Owners can update their company's name
-			updateLogo: (user, data) => user.user_metadata.company_id === data.id, // Owners can update their company's logo
+			updateName: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can update their company's name
+			updateLogo: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can update their company's logo
+			view: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can view their own company
+			verify: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can verify their own company
+			update: (user, data) => user.user_metadata.company_id === data.companyId // Owners can update their own company
 		}
 	},
 	[UserRole.Leader]: {
@@ -129,6 +138,9 @@ const ROLES = {
 		company: {
 			updateName: false, // Leaders cannot update company name
 			updateLogo: false, // Leaders cannot update company logo
+			view: (user, data) => user.user_metadata.company_id === data.companyId && (data.role === UserRole.Employee || data.role === UserRole.Leader), // Leaders can view their own company's same role and below
+			verify: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can verify their own company
+			update: false // Leaders cannot update company
 		}
 	},
 	[UserRole.Employee]: {
@@ -159,6 +171,9 @@ const ROLES = {
 		company: {
 			updateName: false, // Employees cannot update company name
 			updateLogo: false, // Employees cannot update company logo
+			view: (user, data) => user.user_metadata.company_id === data.companyId && user.id === data.userId, // Employees can view their own data
+			verify: false, // Employees cannot verify their own company
+			update: false // Employees cannot update company
 		}
 	}
 } as const satisfies RolesWithPermissions
