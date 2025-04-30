@@ -1,4 +1,3 @@
-// backend/lib/utils.ts
 import { supabase } from "./supabase"
 import { object, string } from "zod"
 import { COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS } from "./constants"

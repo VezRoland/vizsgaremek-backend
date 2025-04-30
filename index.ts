@@ -4,6 +4,8 @@ import cookieParser from "cookie-parser"
 import ticketRouter from "./routes/ticket.ts"
 import scheduleRouter from "./routes/schedule.ts"
 import trainingRouter from "./routes/training.ts"
+import companyRouter from "./routes/company.ts";
+import userRouter from "./routes/user.ts";
 
 import type { NextFunction, Request, Response } from "express"
 import type { ApiResponse } from "./types/response"
@@ -21,6 +23,8 @@ app.use("/auth", authRouter)
 app.use("/ticket", ticketRouter)
 app.use("/schedule", scheduleRouter)
 app.use("/training", trainingRouter)
+app.use("/company", companyRouter);
+app.use("/user", userRouter);
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 	console.error(err.stack)

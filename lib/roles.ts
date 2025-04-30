@@ -13,6 +13,10 @@ type RolesWithPermissions = {
 	}>
 }
 
+interface CompanyData {
+	id: string;
+}
+
 type Permissions = {
 	tickets: {
 		dataType: Pick<Ticket, "userId" | "companyId">
@@ -29,6 +33,10 @@ type Permissions = {
 	submission: {
 		dataType: Pick<Submission, "companyId" | "role" | "userId">,
 		action: "view" | "create"
+	},
+	company: {
+		dataType: CompanyData,
+		action: "updateName" | "updateLogo"
 	}
 }
 
@@ -57,6 +65,10 @@ const ROLES = {
 		submission: {
 			view: false, // Admins cannot view submissions
 			create: false // Admins cannot create submissions
+		},
+		company: {
+			updateName: false, // Admins cannot update company name
+			updateLogo: false, // Admins cannot update company logo
 		}
 	},
 	[UserRole.Owner]: {
@@ -83,6 +95,10 @@ const ROLES = {
 		submission: {
 			view: (user, data) => user.user_metadata.company_id === data.companyId, // Owners can only view submissions in their company
 			create: (user, data) => user.user_metadata.company_id === data.companyId // Owners can only create submissions in their company
+		},
+		company: {
+			updateName: (user, data) => user.user_metadata.company_id === data.id, // Owners can update their company's name
+			updateLogo: (user, data) => user.user_metadata.company_id === data.id, // Owners can update their company's logo
 		}
 	},
 	[UserRole.Leader]: {
@@ -109,6 +125,10 @@ const ROLES = {
 		submission: {
 			view: (user, data) => user.user_metadata.company_id === data.companyId, // Leaders can only view submissions in their company
 			create: (user, data) => user.user_metadata.company_id === data.companyId // Leaders can only create submissions in their company
+		},
+		company: {
+			updateName: false, // Leaders cannot update company name
+			updateLogo: false, // Leaders cannot update company logo
 		}
 	},
 	[UserRole.Employee]: {
@@ -135,6 +155,10 @@ const ROLES = {
 		submission: {
 			view: (user, data) => user.id === data.userId, // Employees can only view their own submissions
 			create: (user, data) => user.user_metadata.company_id === data.companyId && data.role === UserRole.Employee // Employees can only create submissions in their company
+		},
+		company: {
+			updateName: false, // Employees cannot update company name
+			updateLogo: false, // Employees cannot update company logo
 		}
 	}
 } as const satisfies RolesWithPermissions

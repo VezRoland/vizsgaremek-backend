@@ -88,6 +88,11 @@ vi.mock("../lib/supabase", () => {
 
 	const mockStorageFrom = vi.fn(() => ({
 		upload: vi.fn().mockResolvedValue({ data: { path: "mock/path.jpg" }, error: null }),
+		remove: vi.fn().mockResolvedValue({ data: [{ /* a */ }], error: null }),
+		getPublicUrl: vi.fn().mockImplementation((pathInBucket) => ({
+			data: { publicUrl: `https://mock.supabase.co/storage/v1/object/public/avatars/${pathInBucket}` },
+			error: null
+		})),
 		createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: "http://urlmockurl.com/signed" }, error: null })
 	}))
 
