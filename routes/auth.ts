@@ -24,24 +24,24 @@ const COOKIE_OPTIONS: CookieOptions = {
 
 async function getCompanyIdByCode(
 	code: string,
-	res: Response,
 	next: NextFunction
-) {
+): Promise<string> {
 	try {
 		const result = await postgres.query(
-			"SELECT * FROM public.company WHERE code = $1::text",
+			"SELECT id FROM public.company WHERE code = $1::text",
 			[code]
 		)
 
 		if (result.rows.length === 0) {
-			res.status(404).json({
-				status: "error",
-				message: "Failed to sign up.",
-				errors: { company_code: "Invalid company code" }
-			} satisfies ApiResponse<unknown, Partial<z.infer<typeof signUpEmployeeSchema>>>)
-		} else result.rows[0]
+			const err = new Error("Invalid company code") as any
+			err.status = 404
+			err.field = "company_code"
+			throw err
+		} else {
+			return result.rows[0].id
+		}
 	} catch (error) {
-		return next(error)
+		throw error
 	}
 }
 
@@ -120,52 +120,62 @@ router.post("/sign-up/employee", async (req, res, next) => {
 		return
 	}
 
-	const authResponse = await supabase.auth.admin.createUser({
-		email: parsedBody.data.email,
-		password: parsedBody.data.password,
-		user_metadata: {
-			name: parsedBody.data.name,
-			role: UserRole.Employee,
-			company_id: await getCompanyIdByCode(
-				parsedBody.data.company_code,
-				res,
-				next
-			)
-		},
-		email_confirm: true
-	})
+	try {
+		const companyId = await getCompanyIdByCode(parsedBody.data.company_code, next)
 
-	if (authResponse.error) {
-		if (authResponse.error instanceof AuthApiError) {
-			switch (authResponse.error.code) {
-				case "email_exists": {
-					res.status(authResponse.error.status).json({
-						status: "error",
-						message: "Failed to sign up.",
-						errors: { email: "Email is already in use" }
-					} satisfies ApiResponse<unknown, Partial<z.infer<typeof signUpEmployeeSchema>>>)
-					return
-				}
-				case "unexpected_failure": {
-					return next(authResponse.error)
-				}
-				default: {
-					res.status(authResponse.error.status).json({
-						status: "error",
-						message: authResponse.error.message
-					} satisfies ApiResponse)
-					return
+		const authResponse = await supabase.auth.admin.createUser({
+			email: parsedBody.data.email,
+			password: parsedBody.data.password,
+			user_metadata: {
+				name: parsedBody.data.name,
+				role: UserRole.Employee,
+				company_id: companyId
+			},
+			email_confirm: true
+		})
+
+		if (authResponse.error) {
+			if (authResponse.error instanceof AuthApiError) {
+				switch (authResponse.error.code) {
+					case "email_exists": {
+						res.status(authResponse.error.status).json({
+							status: "error",
+							message: "Failed to sign up.",
+							errors: { email: "Email is already in use" }
+						} satisfies ApiResponse<unknown, Partial<z.infer<typeof signUpEmployeeSchema>>>)
+						return
+					}
+					case "unexpected_failure": {
+						return next(authResponse.error)
+					}
+					default: {
+						res.status(authResponse.error.status).json({
+							status: "error",
+							message: authResponse.error.message
+						} satisfies ApiResponse)
+						return
+					}
 				}
 			}
+			return next(authResponse.error)
 		}
 
-		return next(authResponse.error)
-	}
+		res.status(201).json({
+			status: "success",
+			message: "Signed up successfully."
+		} satisfies ApiResponse)
 
-	res.json({
-		status: "success",
-		message: "Signed up successfully."
-	} satisfies ApiResponse)
+	} catch (error: any) {
+		if (error.status === 404 && error.field === "company_code") {
+			res.status(404).json({
+				status: "error",
+				message: "Failed to sign up.",
+				errors: { company_code: error.message }
+			} satisfies ApiResponse<unknown, any>)
+		} else {
+			return next(error)
+		}
+	}
 })
 
 router.post("/sign-up/company", async (req, res, next) => {
@@ -180,48 +190,57 @@ router.post("/sign-up/company", async (req, res, next) => {
 		return
 	}
 
-	const authResponse = await supabase.auth.admin.createUser({
-		email: parsedBody.data.email,
-		password: parsedBody.data.password,
-		user_metadata: {
-			name: parsedBody.data.name,
-			role: UserRole.Owner,
-			company_id: await createCompany(parsedBody.data.company_name, next)
-		},
-		email_confirm: true
-	})
-
-	if (authResponse.error) {
-		if (authResponse.error instanceof AuthApiError) {
-			switch (authResponse.error.code) {
-				case "email_exists": {
-					res.status(authResponse.error.status).json({
-						status: "error",
-						message: "Failed to sign up.",
-						errors: { email: "Email is already in use" }
-					} satisfies ApiResponse<unknown, Partial<z.infer<typeof signUpCompanySchema>>>)
-					return
-				}
-				case "unexpected_failure": {
-					return next(authResponse.error)
-				}
-				default: {
-					res.status(authResponse.error.status).json({
-						status: "error",
-						message: authResponse.error.message
-					} satisfies ApiResponse)
-					return
-				}
-			}
+	try {
+		const companyId = await createCompany(parsedBody.data.company_name, next)
+		if (!companyId) { // createCompany should already throw an error if it fails
+			return
 		}
 
-		return next(authResponse.error)
-	}
+		const authResponse = await supabase.auth.admin.createUser({
+			email: parsedBody.data.email,
+			password: parsedBody.data.password,
+			user_metadata: {
+				name: parsedBody.data.name,
+				role: UserRole.Owner,
+				company_id: companyId
+			},
+			email_confirm: true
+		})
 
-	res.json({
-		status: "success",
-		message: "Signed up successfully."
-	} satisfies ApiResponse)
+		if (authResponse.error) {
+			if (authResponse.error instanceof AuthApiError) {
+				switch (authResponse.error.code) {
+					case "email_exists": {
+						res.status(authResponse.error.status).json({
+							status: "error",
+							message: "Failed to sign up.",
+							errors: { email: "Email is already in use" }
+						} satisfies ApiResponse<unknown, Partial<z.infer<typeof signUpCompanySchema>>>)
+						return
+					}
+					case "unexpected_failure": {
+						return next(authResponse.error)
+					}
+					default: {
+						res.status(authResponse.error.status).json({
+							status: "error",
+							message: authResponse.error.message
+						} satisfies ApiResponse)
+						return
+					}
+				}
+			}
+
+			return next(authResponse.error)
+		}
+
+		res.status(201).json({
+			status: "success",
+			message: "Signed up successfully."
+		} satisfies ApiResponse)
+	} catch (error) {
+		return next(error)
+	}
 })
 
 router.post("/sign-out", getUserFromCookie, async (req, res, next) => {
@@ -266,7 +285,7 @@ router.get("/user", getUserFromCookie, async (req, res, next) => {
 
 		res.setHeader("Cache-Control", `private, max-age=${10 * 60}`)
 		user.updated_at &&
-			res.setHeader("Last-Modified", new Date(user.updated_at).toUTCString())
+		res.setHeader("Last-Modified", new Date(user.updated_at).toUTCString())
 
 		res.json({
 			status: "success",
