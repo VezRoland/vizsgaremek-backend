@@ -250,9 +250,10 @@ describe("Company API Integration Tests", () => {
         .set("Cookie", EMPLOYEE_COOKIE);
       expect(response.status).toBe(200);
       expect(response.body.data.id).toBe(MOCK_EMPLOYEE_ID);
+      expect(response.body.data).toHaveProperty("name");
       expect(response.body.data).toHaveProperty("hourlyWage");
       expect(response.body.data).toHaveProperty("role");
-      expect(Object.keys(response.body.data)).toHaveLength(3);
+      expect(Object.keys(response.body.data)).toHaveLength(4);
     });
 
     it("Employee should get 403 for other user's data", async () => {
