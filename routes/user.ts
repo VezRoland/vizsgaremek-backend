@@ -88,7 +88,11 @@ router.post(
 			const newFilePathInBucket = `${user.id}.${fileExt}`;
 			const {error: uploadError} = await supabase.storage
 				.from(BUCKET_NAME)
-				.upload(newFilePathInBucket, file.buffer, {contentType: file.mimetype, upsert: true});
+				.upload(newFilePathInBucket, file.buffer, {
+					contentType: file.mimetype,
+					upsert: false,
+					cacheControl: 'public, max-age=0, must-revalidate'
+				});
 
 			if (uploadError) {
 				console.error(`[User ${user.id}] Supabase upload error:`, uploadError);
@@ -104,16 +108,18 @@ router.post(
 				console.error(`[User ${user.id}] Failed to get public URL:`, urlError);
 				throw new Error("Could not retrieve public URL for the uploaded avatar.");
 			}
-			const newAvatarUrl = urlData.publicUrl;
+			const newAvatarBaseUrl = urlData.publicUrl;
+			const newAvatarUrlWithCacheBust = `${newAvatarBaseUrl}?t=${Date.now()}`;
+
 
 			// 6. Update DB
 			await postgres.query(`UPDATE public."user"
                             SET avatar_url = $1
-                            WHERE id = $2`, [newAvatarUrl, user.id]);
+                            WHERE id = $2`, [newAvatarUrlWithCacheBust, user.id]);
 
 			// 7. Send Success Response
-			return res.status(200).json({
-				status: "success", message: "Avatar uploaded successfully.", data: {avatarUrl: newAvatarUrl},
+			res.status(200).json({
+				status: "success", message: "Avatar uploaded successfully.", data: {avatarUrl: newAvatarUrlWithCacheBust},
 			} satisfies ApiResponse);
 
 		} catch (error: any) {

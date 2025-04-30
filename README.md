@@ -87,36 +87,36 @@ The backend follows a standard web service architecture consisting of a client f
 
 ### 3.2 Dependencies
 
-| Package                 | Version                    | Description                                      |
-| :---------------------- |:---------------------------| :----------------------------------------------- |
-| `express`               | ^4.21.2                    | Web server framework                             |
-| `cors`                  | ^2.8.5                     | Middleware for enabling Cross-Origin Resource Sharing |
-| `cookie-parser`         | ^1.4.7                     | Middleware for parsing request cookies           |
-| `@supabase/supabase-js` | ^2.48.1                    | Supabase client library (Auth, Storage)          |
-| `pg`                    | ^8.13.1                    | PostgreSQL client library for Node.js            |
-| `zod`                   | ^3.24.1                    | Schema declaration and validation library        |
-| `multer`                | ^1.4.5-lts.2               | Middleware for handling multipart/form-data      |
+| Package                 | Version      | Description                                           |
+|:------------------------|:-------------|:------------------------------------------------------|
+| `express`               | ^4.21.2      | Web server framework                                  |
+| `cors`                  | ^2.8.5       | Middleware for enabling Cross-Origin Resource Sharing |
+| `cookie-parser`         | ^1.4.7       | Middleware for parsing request cookies                |
+| `@supabase/supabase-js` | ^2.48.1      | Supabase client library (Auth, Storage)               |
+| `pg`                    | ^8.13.1      | PostgreSQL client library for Node.js                 |
+| `zod`                   | ^3.24.1      | Schema declaration and validation library             |
+| `multer`                | ^1.4.5-lts.2 | Middleware for handling multipart/form-data           |
 
 ### 3.3 Development Dependencies
 
-| Package        | Version                    | Description                     |
-| :------------- |:---------------------------| :------------------------------ |
-| `vitest`       | ^3.1.1                     | Test runner framework           |
-| `supertest`    | ^7.1.0                     | HTTP assertion testing library  |
-| `dotenv`       | ^16.5.0                    | Loading environment variables   |
-| `@types/*`     | Various                    | TypeScript type definitions     |
-| `@types/bun`   | ^1.2.9                     | Bun-specific types              |
+| Package      | Version | Description                    |
+|:-------------|:--------|:-------------------------------|
+| `vitest`     | ^3.1.1  | Test runner framework          |
+| `supertest`  | ^7.1.0  | HTTP assertion testing library |
+| `dotenv`     | ^16.5.0 | Loading environment variables  |
+| `@types/*`   | Various | TypeScript type definitions    |
+| `@types/bun` | ^1.2.9  | Bun-specific types             |
 
 ### 3.4 Environment Variables
 
 These variables must be configured (typically in a `.env` file):
 
-| Variable                    | Description                                            | Example                                   |
-| :-------------------------- | :----------------------------------------------------- |:------------------------------------------|
-| `SUPABASE_URL`              | Your Supabase project URL.                             | `https://your-project-ref.supabase.co`    |
-| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key (for admin operations). | `eyJ...`                                  |
-| `POSTGRES_URL`              | Connection string for your PostgreSQL database.        | `postgresql://user:password@host:port/db` |
-| `ORIGIN_URL`                | The frontend URL for CORS configuration.               | `http://localhost:5173`                   |
+| Variable                    | Description                                             | Example                                   |
+|:----------------------------|:--------------------------------------------------------|:------------------------------------------|
+| `SUPABASE_URL`              | Your Supabase project URL.                              | `https://your-project-ref.supabase.co`    |
+| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key (for admin operations).  | `eyJ...`                                  |
+| `POSTGRES_URL`              | Connection string for your PostgreSQL database.         | `postgresql://user:password@host:port/db` |
+| `ORIGIN_URL`                | The frontend URL for CORS configuration.                | `http://localhost:5173`                   |
 | `PORT` (Optional)           | The port the server should run on (defaults to `3000`). | `8080`                                    |
 
 *Note: For testing, a separate `.env.test` file is loaded, pointing to a local test database.*
@@ -173,29 +173,29 @@ This directory contains essential modules used across the application.
 
 The following table summarizes the access control rules enforced by the `hasPermission` function in [`lib/roles.ts`](#54-librolests), based on the user's role.
 
-| Resource     | Action       | Employee (`Role 1`)                             | Leader (`Role 2`)                                              | Owner (`Role 3`)                                     | Admin (`Role 4`)                     | Notes                                                               |
-| :----------- | :----------- | :---------------------------------------------- | :------------------------------------------------------------- | :--------------------------------------------------- | :----------------------------------- |:--------------------------------------------------------------------|
-| **Ticket** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Own or Company (`data.userId`, `data.companyId`)              | ✅ Own or Company                                | ✅ Admin Only (`data.companyId === null`) |                                                                     |
-|              | `create`     | ✅ Company or Admin (`data.companyId`)          | ✅ Company or Admin                                              | ✅ Company or Admin                              | ❌                                   |                                                                     |
-|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ✅ Admin Only                        |                                                                     |
-|              | `close`      | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ✅ Admin Only                        |                                                                     |
-|              | `respond`    | ✅ Own Only (`data.userId`)                     | ✅ Own or Company                                                | ✅ Own or Company                                | ✅ Admin Only                        |                                                                     |
-| **Schedule** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `create`     | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader cannot create for Owner (enforced in route).                 |
-|              | `finalize`   | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `delete`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader/Owner can delete finalized schedules.                        |
-|              | `update`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader/Owner can update finalized schedules.                        |
-| **Training** | `view`       | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `create`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `update`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-| **Submission**| `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
-|              | `create`     | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | User can submit for any training role they have permission to view. |
-| **Company** | `updateName` | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `updateLogo` | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   | *Note: Logo update route not yet implemented.* |
-|              | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only & (Role<=Leader) (`data.companyId`, `data.role`) | ✅ Company Only (`data.companyId`)               | ❌                                   | View refers to viewing user data within the company context.      |
-|              | `verify`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only (`data.companyId`)               | ❌                                   | Verify refers to verifying a user account.                         |
-|              | `update`     | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   | Update refers to modifying user role/wage.                         |
+| Resource       | Action       | Employee (`Role 1`)                                       | Leader (`Role 2`)                                               | Owner (`Role 3`)                  | Admin (`Role 4`)                         | Notes                                                               |
+|:---------------|:-------------|:----------------------------------------------------------|:----------------------------------------------------------------|:----------------------------------|:-----------------------------------------|:--------------------------------------------------------------------|
+| **Ticket**     | `view`       | ✅ Own Only (`data.userId`)                                | ✅ Own or Company (`data.userId`, `data.companyId`)              | ✅ Own or Company                  | ✅ Admin Only (`data.companyId === null`) |                                                                     |
+|                | `create`     | ✅ Company or Admin (`data.companyId`)                     | ✅ Company or Admin                                              | ✅ Company or Admin                | ❌                                        |                                                                     |
+|                | `delete`     | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ✅ Admin Only                             |                                                                     |
+|                | `close`      | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ✅ Admin Only                             |                                                                     |
+|                | `respond`    | ✅ Own Only (`data.userId`)                                | ✅ Own or Company                                                | ✅ Own or Company                  | ✅ Admin Only                             |                                                                     |
+| **Schedule**   | `view`       | ✅ Own Only (`data.userId`)                                | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `create`     | ✅ Own Only (`data.userId`)                                | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        | Leader cannot create for Owner (enforced in route).                 |
+|                | `finalize`   | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `delete`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`)  | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        | Leader/Owner can delete finalized schedules.                        |
+|                | `update`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`)  | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        | Leader/Owner can update finalized schedules.                        |
+| **Training**   | `view`       | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `create`     | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `delete`     | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `update`     | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+| **Submission** | `view`       | ✅ Own Only (`data.userId`)                                | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        |                                                                     |
+|                | `create`     | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                    | ❌                                        | User can submit for any training role they have permission to view. |
+| **Company**    | `updateName` | ❌                                                         | ❌                                                               | ✅ Company Only (`data.companyId`) | ❌                                        |                                                                     |
+|                | `updateLogo` | ❌                                                         | ❌                                                               | ✅ Company Only (`data.companyId`) | ❌                                        | *Note: Logo update route not yet implemented.*                      |
+|                | `view`       | ✅ Own Only (`data.userId`)                                | ✅ Company Only & (Role<=Leader) (`data.companyId`, `data.role`) | ✅ Company Only (`data.companyId`) | ❌                                        | View refers to viewing user data within the company context.        |
+|                | `verify`     | ❌                                                         | ✅ Company Only (`data.companyId`)                               | ✅ Company Only (`data.companyId`) | ❌                                        | Verify refers to verifying a user account.                          |
+|                | `update`     | ❌                                                         | ❌                                                               | ✅ Company Only (`data.companyId`) | ❌                                        | Update refers to modifying user role/wage.                          |
 
 *(data refers to the contextual data object passed to hasPermission, e.g., { companyId: '...', role: 1, userId: '...' })*
 
@@ -237,11 +237,11 @@ Handles user lifecycle and session management via Supabase Auth. Found in `route
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                  | Example Response Body                                                                                                  |
-  | :---------- | :--------------------------------------- | :--------------------------------------------------------------------------------------------------------------------- |
-  | `422`       | Validation Error (Zod schema failed)     | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"email": ["..."]}}}`       |
-  | `422`       | Email already exists (from Supabase)   | `{"status": "error", "message": "Failed to sign up.", "errors": {"email": "Email is already in use"}}`                |
-  | `500`       | Database error creating company or user | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`|
+  | Status Code | Meaning                                 | Example Response Body                                                                                            |
+  |:------------|:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------|
+  | `422`       | Validation Error (Zod schema failed)    | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"email": ["..."]}}}` |
+  | `422`       | Email already exists (from Supabase)    | `{"status": "error", "message": "Failed to sign up.", "errors": {"email": "Email is already in use"}}`           |
+  | `500`       | Database error creating company or user | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`                              |
 
 #### `POST /auth/sign-up/employee`
 
@@ -271,12 +271,12 @@ Handles user lifecycle and session management via Supabase Auth. Found in `route
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                  | Example Response Body                                                                                                         |
-  | :---------- | :--------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
-  | `422`       | Validation Error (Zod schema failed)     | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"company_code": ["..."]}}}`       |
-  | `404`       | Invalid `company_code`                   | `{"status": "error", "message": "Failed to sign up.", "errors": {"company_code": "Invalid company code"}}`                    |
-  | `422`       | Email already exists (from Supabase)   | `{"status": "error", "message": "Failed to sign up.", "errors": {"email": "Email is already in use"}}`                       |
-  | `500`       | Database error creating user              | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`                                         |
+  | Status Code | Meaning                              | Example Response Body                                                                                                   |
+  |:------------|:-------------------------------------|:------------------------------------------------------------------------------------------------------------------------|
+  | `422`       | Validation Error (Zod schema failed) | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"company_code": ["..."]}}}` |
+  | `404`       | Invalid `company_code`               | `{"status": "error", "message": "Failed to sign up.", "errors": {"company_code": "Invalid company code"}}`              |
+  | `422`       | Email already exists (from Supabase) | `{"status": "error", "message": "Failed to sign up.", "errors": {"email": "Email is already in use"}}`                  |
+  | `500`       | Database error creating user         | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`                                     |
 
 #### `POST /auth/sign-in`
 
@@ -305,11 +305,11 @@ Handles user lifecycle and session management via Supabase Auth. Found in `route
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                  | Example Response Body                                                                                                                    |
-  | :---------- | :--------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
-  | `422`       | Validation Error (Zod schema failed)     | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"email": ["Email address is invalid"]}}}` |
-  | `400`       | Invalid Credentials (from Supabase)     | `{"status": "error", "message": "Failed to sign in.", "errors": {"email": "Invalid credentials", "password": "Invalid credentials"}}`     |
-  | `500`       | Unexpected Supabase or server error       | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`                                                    |
+  | Status Code | Meaning                              | Example Response Body                                                                                                                 |
+  |:------------|:-------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|
+  | `422`       | Validation Error (Zod schema failed) | `{"status": "error", "message": "Invalid credentials provided.", "errors": {"fieldErrors": {"email": ["Email address is invalid"]}}}` |
+  | `400`       | Invalid Credentials (from Supabase)  | `{"status": "error", "message": "Failed to sign in.", "errors": {"email": "Invalid credentials", "password": "Invalid credentials"}}` |
+  | `500`       | Unexpected Supabase or server error  | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`                                                   |
 
 #### `POST /auth/sign-out`
 
@@ -331,10 +331,10 @@ Handles user lifecycle and session management via Supabase Auth. Found in `route
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                  | Example Response Body                                                                        |
-  | :---------- | :--------------------------------------- | :------------------------------------------------------------------------------------------- |
-  | `401`       | No/Invalid `auth` cookie provided      | (Handled by `getUserFromCookie` middleware, see [Utils](#53-libutilsts))                   |
-  | `500`       | Unexpected Supabase or server error       | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`        |
+  | Status Code | Meaning                             | Example Response Body                                                               |
+  |:------------|:------------------------------------|:------------------------------------------------------------------------------------|
+  | `401`       | No/Invalid `auth` cookie provided   | (Handled by `getUserFromCookie` middleware, see [Utils](#53-libutilsts))            |
+  | `500`       | Unexpected Supabase or server error | `{"status": "error", "message": "There was an unexpected error. Try again later!"}` |
 
 #### `GET /auth/user`
 
@@ -368,8 +368,8 @@ Handles user lifecycle and session management via Supabase Auth. Found in `route
 * **Error Responses:**
 
   | Status Code | Meaning                                       | Example Response Body                                                               |
-  | :---------- | :-------------------------------------------- | :---------------------------------------------------------------------------------- |
-  | `401`       | No/Invalid `auth` or `refresh` cookie       | (Handled by `getUserFromCookie` middleware, see [Utils](#53-libutilsts))            |
+  |:------------|:----------------------------------------------|:------------------------------------------------------------------------------------|
+  | `401`       | No/Invalid `auth` or `refresh` cookie         | (Handled by `getUserFromCookie` middleware, see [Utils](#53-libutilsts))            |
   | `500`       | Database error fetching user data or Supabase | `{"status": "error", "message": "There was an unexpected error. Try again later!"}` |
 
 ---
@@ -406,12 +406,12 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                            | Example Response Body                                                                  |
-  | :---------- | :------------------------------------------------- | :------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                  | (Handled by `getUserFromCookie`)                                                       |
-  | `400`       | Validation Error (Zod schema: title/content length)| `{"status": "error", "message": "Invalid data! Please check the fields."}`             |
-  | `403`       | Permission Denied                                  | `{"status": "error", "message": "You are not authorized to create a ticket!"}`       |
-  | `500`       | Database error                                     | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`    |
+  | Status Code | Meaning                                             | Example Response Body                                                               |
+  |:------------|:----------------------------------------------------|:------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                                   | (Handled by `getUserFromCookie`)                                                    |
+  | `400`       | Validation Error (Zod schema: title/content length) | `{"status": "error", "message": "Invalid data! Please check the fields."}`          |
+  | `403`       | Permission Denied                                   | `{"status": "error", "message": "You are not authorized to create a ticket!"}`      |
+  | `500`       | Database error                                      | `{"status": "error", "message": "There was an unexpected error. Try again later!"}` |
 
 #### `GET /ticket/all`
 
@@ -431,11 +431,11 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                           | Example Response Body                                                                 |
-  | :---------- | :-------------------------------- | :------------------------------------------------------------------------------------ |
-  | `401`       | Not authenticated                 | (Handled by `getUserFromCookie`)                                                      |
-  | `404`       | No tickets found or accessible   | `{"status": "error", "message": "Tickets not found or you don't have permission..."}` |
-  | `500`       | Database error                    | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`   |
+  | Status Code | Meaning                        | Example Response Body                                                                 |
+  |:------------|:-------------------------------|:--------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated              | (Handled by `getUserFromCookie`)                                                      |
+  | `404`       | No tickets found or accessible | `{"status": "error", "message": "Tickets not found or you don't have permission..."}` |
+  | `500`       | Database error                 | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`   |
 
 #### `GET /ticket/:id`
 
@@ -456,11 +456,11 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                             | Example Response Body                                                                     |
-  | :---------- | :---------------------------------- | :---------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                   | (Handled by `getUserFromCookie`)                                                          |
-  | `404`       | Ticket not found or permission denied | `{"status": "error", "message": "Ticket not found or you don't have permission..."}`    |
-  | `500`       | Database error                      | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`       |
+  | Status Code | Meaning                               | Example Response Body                                                                |
+  |:------------|:--------------------------------------|:-------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                     | (Handled by `getUserFromCookie`)                                                     |
+  | `404`       | Ticket not found or permission denied | `{"status": "error", "message": "Ticket not found or you don't have permission..."}` |
+  | `500`       | Database error                        | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`  |
 
 #### `PATCH /ticket/:id/status`
 
@@ -476,12 +476,12 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                             | Example Response Body                                                                     |
-  | :---------- | :---------------------------------- | :---------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                   | (Handled by `getUserFromCookie`)                                                          |
-  | `403`       | Permission Denied                   | `{"status": "error", "message": "You are not authorized to close this ticket!"}`        |
-  | `404`       | Ticket not found or inaccessible    | `{"status": "error", "message": "Ticket not found or you don't have permission..."}`    |
-  | `500`       | Database error                      | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`       |
+  | Status Code | Meaning                          | Example Response Body                                                                |
+  |:------------|:---------------------------------|:-------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                | (Handled by `getUserFromCookie`)                                                     |
+  | `403`       | Permission Denied                | `{"status": "error", "message": "You are not authorized to close this ticket!"}`     |
+  | `404`       | Ticket not found or inaccessible | `{"status": "error", "message": "Ticket not found or you don't have permission..."}` |
+  | `500`       | Database error                   | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`  |
 
 #### `POST /ticket/:id/response`
 
@@ -504,13 +504,13 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                             | Example Response Body                                                                        |
-  | :---------- | :---------------------------------- | :------------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                   | (Handled by `getUserFromCookie`)                                                             |
-  | `400`       | Validation Error (content length)   | `{"status": "error", "message": "Invalid data! Please check the fields."}`                   |
-  | `403`       | Permission Denied                   | `{"status": "error", "message": "You are not authorized to respond to this ticket!"}`      |
-  | `404`       | Ticket not found or inaccessible    | `{"status": "error", "message": "Ticket not found or you don't have permission..."}`       |
-  | `500`       | Database error                      | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`          |
+  | Status Code | Meaning                           | Example Response Body                                                                 |
+  |:------------|:----------------------------------|:--------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                 | (Handled by `getUserFromCookie`)                                                      |
+  | `400`       | Validation Error (content length) | `{"status": "error", "message": "Invalid data! Please check the fields."}`            |
+  | `403`       | Permission Denied                 | `{"status": "error", "message": "You are not authorized to respond to this ticket!"}` |
+  | `404`       | Ticket not found or inaccessible  | `{"status": "error", "message": "Ticket not found or you don't have permission..."}`  |
+  | `500`       | Database error                    | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`   |
 
 #### `GET /ticket/:id/responses`
 
@@ -530,11 +530,11 @@ Manages support tickets and responses. Found in `routes/ticket.ts`. Access contr
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                             | Example Response Body                                                                        |
-  | :---------- | :---------------------------------- | :------------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                   | (Handled by `getUserFromCookie`)                                                             |
-  | `404`       | Ticket not found or permission denied | `{"status": "error", "message": "Ticket not found or you don't have permission..."}`       |
-  | `500`       | Database error                      | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`          |
+  | Status Code | Meaning                               | Example Response Body                                                                |
+  |:------------|:--------------------------------------|:-------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                     | (Handled by `getUserFromCookie`)                                                     |
+  | `404`       | Ticket not found or permission denied | `{"status": "error", "message": "Ticket not found or you don't have permission..."}` |
+  | `500`       | Database error                        | `{"status": "error", "message": "There was an unexpected error. Try again later!"}`  |
 
 ---
 
@@ -882,12 +882,12 @@ Manages company-level settings. Found in `routes/company.ts`.
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                     | Example Response Body                                                               |
-      | :---------- | :------------------------------------------ | :---------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                           | (Handled by `getUserFromCookie`)                                                    |
-  | `403`       | Employee attempting access                  | `{"status": "error", "message": "Employees do not have permission..."}`           |
-  | `400`       | Requester not associated with a company    | `{"status": "error", "message": "Requesting user is not associated with a company."}` |
-  | `500`       | Database error                              | `{"status": "error", "message": "There was an unexpected error..."}`              |
+  | Status Code | Meaning                                 | Example Response Body                                                                 |
+  |:------------|:----------------------------------------|:--------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                       | (Handled by `getUserFromCookie`)                                                      |
+  | `403`       | Employee attempting access              | `{"status": "error", "message": "Employees do not have permission..."}`               |
+  | `400`       | Requester not associated with a company | `{"status": "error", "message": "Requesting user is not associated with a company."}` |
+  | `500`       | Database error                          | `{"status": "error", "message": "There was an unexpected error..."}`                  |
 
 #### `GET /company/user/:userId`
 
@@ -921,12 +921,12 @@ Manages company-level settings. Found in `routes/company.ts`.
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                                     | Example Response Body                                                              |
-      | :---------- | :---------------------------------------------------------- | :--------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                           | (Handled by `getUserFromCookie`)                                                   |
-  | `403`       | Admin, or Employee viewing other, or viewing higher role    | `{"status": "error", "message": "Employees can only view their own data."}`        |
-  | `404`       | Target user not found or not in the requester's company     | `{"status": "error", "message": "User not found."}`                                |
-  | `500`       | Database error                                              | `{"status": "error", "message": "There was an unexpected error..."}`             |
+  | Status Code | Meaning                                                  | Example Response Body                                                       |
+  |:------------|:---------------------------------------------------------|:----------------------------------------------------------------------------|
+  | `401`       | Not authenticated                                        | (Handled by `getUserFromCookie`)                                            |
+  | `403`       | Admin, or Employee viewing other, or viewing higher role | `{"status": "error", "message": "Employees can only view their own data."}` |
+  | `404`       | Target user not found or not in the requester's company  | `{"status": "error", "message": "User not found."}`                         |
+  | `500`       | Database error                                           | `{"status": "error", "message": "There was an unexpected error..."}`        |
 
 #### `PATCH /company/verify/:userId`
 
@@ -950,12 +950,12 @@ Manages company-level settings. Found in `routes/company.ts`.
       ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                           | Example Response Body                                                              |
-      | :---------- | :------------------------------------------------ | :--------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                 | (Handled by `getUserFromCookie`)                                                   |
-  | `403`       | Employee attempting action or not in a company   | `{"status": "error", "message": "Only Leaders or Owners can verify users."}`       |
-  | `404`       | Target user not found or not in requester's company | `{"status": "error", "message": "User to verify not found."}`                    |
-  | `500`       | Database error                                    | `{"status": "error", "message": "There was an unexpected error..."}`             |
+  | Status Code | Meaning                                             | Example Response Body                                                        |
+  |:------------|:----------------------------------------------------|:-----------------------------------------------------------------------------|
+  | `401`       | Not authenticated                                   | (Handled by `getUserFromCookie`)                                             |
+  | `403`       | Employee attempting action or not in a company      | `{"status": "error", "message": "Only Leaders or Owners can verify users."}` |
+  | `404`       | Target user not found or not in requester's company | `{"status": "error", "message": "User to verify not found."}`                |
+  | `500`       | Database error                                      | `{"status": "error", "message": "There was an unexpected error..."}`         |
 
 #### `PATCH /company/user/:userId`
 
@@ -994,13 +994,13 @@ Manages company-level settings. Found in `routes/company.ts`.
     ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                                     | Example Response Body                                                                        |
-      | :---------- | :---------------------------------------------------------- | :------------------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                           | (Handled by `getUserFromCookie`)                                                             |
-  | `403`       | Not Owner, or attempting to update self/other Owner       | `{"status": "error", "message": "Only Owners can update user data."}` OR `"Cannot update..."` |
-  | `400`       | Invalid data (e.g., missing fields, invalid role/wage)      | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`                    |
-  | `404`       | Target user not found or not in requester's company         | `{"status": "error", "message": "User to update not found."}`                              |
-  | `500`       | Database error                                              | `{"status": "error", "message": "There was an unexpected error..."}`                         |
+  | Status Code | Meaning                                                | Example Response Body                                                                         |
+  |:------------|:-------------------------------------------------------|:----------------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                                      | (Handled by `getUserFromCookie`)                                                              |
+  | `403`       | Not Owner, or attempting to update self/other Owner    | `{"status": "error", "message": "Only Owners can update user data."}` OR `"Cannot update..."` |
+  | `400`       | Invalid data (e.g., missing fields, invalid role/wage) | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`                   |
+  | `404`       | Target user not found or not in requester's company    | `{"status": "error", "message": "User to update not found."}`                                 |
+  | `500`       | Database error                                         | `{"status": "error", "message": "There was an unexpected error..."}`                          |
 
 ---
 
@@ -1074,11 +1074,11 @@ Manages user-specific settings. Found in `routes/user.ts`.
       ```
 * **Error Responses:**
 
-  | Status Code | Meaning                                                | Example Response Body                                                              |
-    | :---------- | :----------------------------------------------------- | :--------------------------------------------------------------------------------- |
-  | `401`       | Not authenticated                                      | (Handled by `getUserFromCookie`)                                                   |
-  | `422`       | Validation Error (e.g., empty body, name/age invalid) | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`         |
-  | `500`       | Supabase/DB update error or unexpected server error | `{"status": "error", "message": "Failed to update user name..." OR "Failed to update user age..." OR "There was an unexpected error..."}`|
+  | Status Code | Meaning                                               | Example Response Body                                                                                                                     |
+  |:------------|:------------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------|
+  | `401`       | Not authenticated                                     | (Handled by `getUserFromCookie`)                                                                                                          |
+  | `422`       | Validation Error (e.g., empty body, name/age invalid) | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`                                                               |
+  | `500`       | Supabase/DB update error or unexpected server error   | `{"status": "error", "message": "Failed to update user name..." OR "Failed to update user age..." OR "There was an unexpected error..."}` |
 
 ---
 
@@ -1102,57 +1102,57 @@ The application utilizes a PostgreSQL database, typically managed via Supabase.
 
 *(Based on `supabase/migrations/20250411000000_initial_schema.sql`)*
 
-| Table                 | Column          | Type          | Constraints & Notes                                                    |
-| :-------------------- | :-------------- | :------------ | :--------------------------------------------------------------------- |
-| **`company`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()`                                        |
-|                       | `name`          | `varchar(100)`| NOT NULL                                                               |
-|                       | `code`          | `varchar(8)`  | NOT NULL                                                               |
-|                       | `created_at`    | `timestamptz` | default: `CURRENT_TIMESTAMP`                                             |
-| **`user`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()` - *Matches `auth.users.id`* |
-|                       | `name`          | `varchar(150)`| NOT NULL                                                               |
-|                       | `age`           | `smallint`    | nullable                                                               |
-|                       | `hourly_wage`   | `integer`     | nullable                                                               |
-|                       | `role`          | `smallint`    | NOT NULL - *Enum: 1:Emp, 2:Leader, 3:Owner, 4:Admin* |
-|                       | `company_id`    | `uuid`        | nullable, FK -> `company.id`                                           |
-|                       | `verified`      | `boolean`     | NOT NULL, default: `false`                                             |
-|                       | `created_at`    | `timestamptz` | default: `CURRENT_TIMESTAMP`                                             |
-|                       | `avatar_url`    | `text`        | nullable                                                               |
-| **`ticket`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()`                                        |
-|                       | `title`         | `varchar(50)` | NOT NULL                                                               |
-|                       | `content`       | `text`        | NOT NULL                                                               |
-|                       | `closed`        | `boolean`     | NOT NULL, default: `false`                                             |
-|                       | `user_id`       | `uuid`        | NOT NULL, FK -> `user.id`                                            |
-|                       | `company_id`    | `uuid`        | nullable, FK -> `company.id`                                           |
-|                       | `created_at`    | `timestamptz` | default: `CURRENT_TIMESTAMP`                                             |
-| **`ticket_response`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()`                                        |
-|                       | `content`       | `text`        | NOT NULL                                                               |
-|                       | `user_id`       | `uuid`        | NOT NULL, FK -> `user.id`                                            |
-|                       | `ticket_id`     | `uuid`        | NOT NULL, FK -> `ticket.id`                                          |
-|                       | `created_at`    | `timestamptz` | default: `CURRENT_TIMESTAMP`                                             |
-| **`schedule`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()`                                        |
-|                       | `start`         | `timestamptz` | NOT NULL                                                               |
-|                       | `end`           | `timestamptz` | NOT NULL                                                               |
-|                       | `category`      | `smallint`    | NOT NULL - *Enum: 1:Paid, 2:Unpaid* |
-|                       | `user_id`       | `uuid`        | NOT NULL, FK -> `user.id`                                            |
-|                       | `company_id`    | `uuid`        | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                       |
-|                       | `finalized`     | `boolean`     | NOT NULL, default: `false`                                             |
-| **`training`** | `id`            | `uuid`        | PK, default: `uuid_generate_v4()`                                        |
-|                       | `name`          | `varchar(100)`| NOT NULL, Unique with `company_id`                                     |
-|                       | `description`   | `text`        | NOT NULL                                                               |
-|                       | `file_url`      | `text`        | NOT NULL - *Path in Supabase Storage* |
-|                       | `created_at`    | `timestamptz` | default: `CURRENT_TIMESTAMP`                                             |
-|                       | `role`          | `smallint`    | NOT NULL - *Target UserRole* |
-|                       | `company_id`    | `uuid`        | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                       |
-|                       | `questions`     | `jsonb`       | NOT NULL - *Array: `{id, name, answers: [{text, correct}], multCorrect}`* |
-| **`submission`** | `id`            | `uuid`        | PK, default: `gen_random_uuid()`                                         |
-|                       | `user_id`       | `uuid`        | NOT NULL, FK -> `user.id`, ON DELETE CASCADE, Unique with `training_id` |
-|                       | `company_id`    | `uuid`        | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                       |
-|                       | `training_id`   | `uuid`        | NOT NULL, FK -> `training.id`, ON DELETE CASCADE, Unique with `user_id` |
-|                       | `answers`       | `jsonb`       | NOT NULL - *Array: `{id, answers: ["..."]}`* |
-|                       | `created_at`    | `timestamptz` | NOT NULL, default: `now() AT TIME ZONE 'utc'`                            |
-| **`training_in_progress`** | `id`       | `uuid`        | PK, default: `gen_random_uuid()`                                         |
-|                       | `user_id`       | `uuid`        | NOT NULL, FK -> `user.id`, ON DELETE CASCADE, Unique with `training_id` |
-|                       | `training_id`   | `uuid`        | NOT NULL, FK -> `training.id`, ON DELETE CASCADE, Unique with `user_id` |
+| Table                      | Column        | Type           | Constraints & Notes                                                       |
+|:---------------------------|:--------------|:---------------|:--------------------------------------------------------------------------|
+| **`company`**              | `id`          | `uuid`         | PK, default: `uuid_generate_v4()`                                         |
+|                            | `name`        | `varchar(100)` | NOT NULL                                                                  |
+|                            | `code`        | `varchar(8)`   | NOT NULL                                                                  |
+|                            | `created_at`  | `timestamptz`  | default: `CURRENT_TIMESTAMP`                                              |
+| **`user`**                 | `id`          | `uuid`         | PK, default: `uuid_generate_v4()` - *Matches `auth.users.id`*             |
+|                            | `name`        | `varchar(150)` | NOT NULL                                                                  |
+|                            | `age`         | `smallint`     | nullable                                                                  |
+|                            | `hourly_wage` | `integer`      | nullable                                                                  |
+|                            | `role`        | `smallint`     | NOT NULL - *Enum: 1:Emp, 2:Leader, 3:Owner, 4:Admin*                      |
+|                            | `company_id`  | `uuid`         | nullable, FK -> `company.id`                                              |
+|                            | `verified`    | `boolean`      | NOT NULL, default: `false`                                                |
+|                            | `created_at`  | `timestamptz`  | default: `CURRENT_TIMESTAMP`                                              |
+|                            | `avatar_url`  | `text`         | nullable                                                                  |
+| **`ticket`**               | `id`          | `uuid`         | PK, default: `uuid_generate_v4()`                                         |
+|                            | `title`       | `varchar(50)`  | NOT NULL                                                                  |
+|                            | `content`     | `text`         | NOT NULL                                                                  |
+|                            | `closed`      | `boolean`      | NOT NULL, default: `false`                                                |
+|                            | `user_id`     | `uuid`         | NOT NULL, FK -> `user.id`                                                 |
+|                            | `company_id`  | `uuid`         | nullable, FK -> `company.id`                                              |
+|                            | `created_at`  | `timestamptz`  | default: `CURRENT_TIMESTAMP`                                              |
+| **`ticket_response`**      | `id`          | `uuid`         | PK, default: `uuid_generate_v4()`                                         |
+|                            | `content`     | `text`         | NOT NULL                                                                  |
+|                            | `user_id`     | `uuid`         | NOT NULL, FK -> `user.id`                                                 |
+|                            | `ticket_id`   | `uuid`         | NOT NULL, FK -> `ticket.id`                                               |
+|                            | `created_at`  | `timestamptz`  | default: `CURRENT_TIMESTAMP`                                              |
+| **`schedule`**             | `id`          | `uuid`         | PK, default: `uuid_generate_v4()`                                         |
+|                            | `start`       | `timestamptz`  | NOT NULL                                                                  |
+|                            | `end`         | `timestamptz`  | NOT NULL                                                                  |
+|                            | `category`    | `smallint`     | NOT NULL - *Enum: 1:Paid, 2:Unpaid*                                       |
+|                            | `user_id`     | `uuid`         | NOT NULL, FK -> `user.id`                                                 |
+|                            | `company_id`  | `uuid`         | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                           |
+|                            | `finalized`   | `boolean`      | NOT NULL, default: `false`                                                |
+| **`training`**             | `id`          | `uuid`         | PK, default: `uuid_generate_v4()`                                         |
+|                            | `name`        | `varchar(100)` | NOT NULL, Unique with `company_id`                                        |
+|                            | `description` | `text`         | NOT NULL                                                                  |
+|                            | `file_url`    | `text`         | NOT NULL - *Path in Supabase Storage*                                     |
+|                            | `created_at`  | `timestamptz`  | default: `CURRENT_TIMESTAMP`                                              |
+|                            | `role`        | `smallint`     | NOT NULL - *Target UserRole*                                              |
+|                            | `company_id`  | `uuid`         | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                           |
+|                            | `questions`   | `jsonb`        | NOT NULL - *Array: `{id, name, answers: [{text, correct}], multCorrect}`* |
+| **`submission`**           | `id`          | `uuid`         | PK, default: `gen_random_uuid()`                                          |
+|                            | `user_id`     | `uuid`         | NOT NULL, FK -> `user.id`, ON DELETE CASCADE, Unique with `training_id`   |
+|                            | `company_id`  | `uuid`         | NOT NULL, FK -> `company.id`, ON DELETE CASCADE                           |
+|                            | `training_id` | `uuid`         | NOT NULL, FK -> `training.id`, ON DELETE CASCADE, Unique with `user_id`   |
+|                            | `answers`     | `jsonb`        | NOT NULL - *Array: `{id, answers: ["..."]}`*                              |
+|                            | `created_at`  | `timestamptz`  | NOT NULL, default: `now() AT TIME ZONE 'utc'`                             |
+| **`training_in_progress`** | `id`          | `uuid`         | PK, default: `gen_random_uuid()`                                          |
+|                            | `user_id`     | `uuid`         | NOT NULL, FK -> `user.id`, ON DELETE CASCADE, Unique with `training_id`   |
+|                            | `training_id` | `uuid`         | NOT NULL, FK -> `training.id`, ON DELETE CASCADE, Unique with `user_id`   |
 
 ### 8.4 Database Triggers
 
