@@ -117,7 +117,7 @@ router.get("/users", getUserFromCookie, async (req: Request, res: Response, next
 
     // 4. Return results
     res.status(200).json({
-      status: "success",
+      status: "ignore",
       message: "Company users fetched successfully.",
       data: result.rows
     } satisfies ApiResponse<typeof result.rows>);
@@ -156,7 +156,7 @@ router.get("/user/:userId", getUserFromCookie, async (req: Request, res: Respons
 
     // Query target user data
     const targetUserResult = await postgres.query(
-      `SELECT id, hourly_wage, role, company_id
+      `SELECT id, hourly_wage, role, company_id, name
        FROM public."user"
        WHERE id = $1`,
       [targetUserId]
@@ -188,10 +188,11 @@ router.get("/user/:userId", getUserFromCookie, async (req: Request, res: Respons
     }
 
     res.status(200).json({
-      status: "success",
+      status: "ignore",
       message: "User data fetched successfully.",
       data: {
         id: targetUser.id,
+        name: targetUser.name,
         hourlyWage: targetUser.hourly_wage,
         role: targetUser.role
       }

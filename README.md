@@ -14,7 +14,7 @@ This document provides comprehensive documentation for the backend system of the
 - [4. Setup and Running](#4-setup-and-running)
 - [5. Core Libraries & Utilities (`/lib`)](#5-core-libraries--utilities-lib)
   - [5.1 `lib/postgres.ts`](#51-libpostgrests)
-  - [5.2 `lib/supabase.ts`](#52-libsupabasesets)
+  - [5.2 `lib/supabase.ts`](#52-libsupabasets)
   - [5.3 `lib/utils.ts`](#53-libutilsts)
   - [5.4 `lib/roles.ts`](#54-librolests)
   - [5.5 `lib/constants.ts`](#55-libconstantsts)
@@ -173,28 +173,31 @@ This directory contains essential modules used across the application.
 
 The following table summarizes the access control rules enforced by the `hasPermission` function in [`lib/roles.ts`](#54-librolests), based on the user's role.
 
-| Resource     | Action       | Employee (`Role 1`)                             | Leader (`Role 2`) / Owner (`Role 3`)             | Admin (`Role 4`)                     | Notes                                                               |
-| :----------- | :----------- | :---------------------------------------------- | :----------------------------------------------- | :----------------------------------- |:--------------------------------------------------------------------|
-| **Ticket** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Own or Company (`data.userId`, `data.companyId`) | ✅ Admin Only (`data.companyId === null`) |                                                                     |
-|              | `create`     | ✅ Company or Admin (`data.companyId`)          | ✅ Company or Admin                              | ❌                                   |                                                                     |
-|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)               | ✅ Admin Only                        |                                                                     |
-|              | `close`      | ❌                                              | ✅ Company Only (`data.companyId`)               | ✅ Admin Only                        |                                                                     |
-|              | `respond`    | ✅ Own Only (`data.userId`)                     | ✅ Own or Company                                | ✅ Admin Only                        |                                                                     |
-| **Schedule** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `create`     | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)               | ❌                                   | Leader cannot create for Owner (enforced in route).                 |
-|              | `finalize`   | ❌                                              | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `delete`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)               | ❌                                   | Leader/Owner can delete finalized schedules.                        |
-|              | `update`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)               | ❌                                   | Leader/Owner can update finalized schedules.                        |
-| **Training** | `view`       | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `create`     | ❌                                              | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `update`     | ❌                                              | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-| **Submission**| `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
-|              | `create`     | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)               | ❌                                   | User can submit for any training role they have permission to view. |
-| **Company** | `updateName` | ❌                                              | ✅ Owner Only (`data.id`)                        | ❌                                   |                                                                     |
-|              | `updateLogo` | ❌                                              | ✅ Owner Only (`data.id`)                        | ❌                                   | *Note: Logo update route not yet implemented.*     |
+| Resource     | Action       | Employee (`Role 1`)                             | Leader (`Role 2`)                                              | Owner (`Role 3`)                                     | Admin (`Role 4`)                     | Notes                                                               |
+| :----------- | :----------- | :---------------------------------------------- | :------------------------------------------------------------- | :--------------------------------------------------- | :----------------------------------- |:--------------------------------------------------------------------|
+| **Ticket** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Own or Company (`data.userId`, `data.companyId`)              | ✅ Own or Company                                | ✅ Admin Only (`data.companyId === null`) |                                                                     |
+|              | `create`     | ✅ Company or Admin (`data.companyId`)          | ✅ Company or Admin                                              | ✅ Company or Admin                              | ❌                                   |                                                                     |
+|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ✅ Admin Only                        |                                                                     |
+|              | `close`      | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ✅ Admin Only                        |                                                                     |
+|              | `respond`    | ✅ Own Only (`data.userId`)                     | ✅ Own or Company                                                | ✅ Own or Company                                | ✅ Admin Only                        |                                                                     |
+| **Schedule** | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `create`     | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader cannot create for Owner (enforced in route).                 |
+|              | `finalize`   | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `delete`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader/Owner can delete finalized schedules.                        |
+|              | `update`     | ✅ Own & Not Finalized (`data.userId`, `!data.finalized`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | Leader/Owner can update finalized schedules.                        |
+| **Training** | `view`       | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `create`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `delete`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `update`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+| **Submission**| `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   |                                                                     |
+|              | `create`     | ✅ Employee Role & Company (`data.role`, `data.companyId`) | ✅ Company Only (`data.companyId`)                               | ✅ Company Only                                | ❌                                   | User can submit for any training role they have permission to view. |
+| **Company** | `updateName` | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   |                                                                     |
+|              | `updateLogo` | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   | *Note: Logo update route not yet implemented.* |
+|              | `view`       | ✅ Own Only (`data.userId`)                     | ✅ Company Only & (Role<=Leader) (`data.companyId`, `data.role`) | ✅ Company Only (`data.companyId`)               | ❌                                   | View refers to viewing user data within the company context.      |
+|              | `verify`     | ❌                                              | ✅ Company Only (`data.companyId`)                               | ✅ Company Only (`data.companyId`)               | ❌                                   | Verify refers to verifying a user account.                         |
+|              | `update`     | ❌                                              | ❌                                                               | ✅ Company Only (`data.companyId`)               | ❌                                   | Update refers to modifying user role/wage.                         |
 
-*(`data` refers to the contextual data object passed to `hasPermission`, e.g., `{ userId: '...', companyId: '...', finalized: false }`)*
+*(data refers to the contextual data object passed to hasPermission, e.g., { companyId: '...', role: 1, userId: '...' })*
 
 ## 7. API Routes
 
@@ -805,6 +808,166 @@ Manages company-level settings. Found in `routes/company.ts`.
     ```
 * **Error Responses:** See table in previous response section.
 
+#### `GET /company/users`
+
+* **Description:** Fetches users within the company, filterable by name and paginated. Excludes the requesting user and filters based on role hierarchy (Leaders see Employees, Owners see Leaders and Employees).
+* **Permissions:** Leader or Owner ([See Table](#6-role-permissions-summary): `company:view`). Employees are denied.
+* **Query Parameters:**
+  * `name` (optional): Filter users whose name contains the provided string (case-insensitive).
+  * `limit` (optional, default: 20): Number of users per page.
+  * `page` (optional, default: 1): Page number to retrieve.
+* **`curl` Example:**
+    ```bash
+    # Fetch first page of users with name containing "Smith"
+    curl -X GET "http://localhost:3000/company/users?name=Smith&page=1" \
+         -H "Cookie: auth=OWNER_TOKEN_HERE"
+    ```
+* **Success Response (200 OK):**
+    ```json
+    {
+      "status": "ignore",
+      "message": "Company users fetched successfully.",
+      "data": [
+        {
+          "id": "c1a9b0d2-e3f4-4a5b-8c6d-7e8f9a0b1c2d",
+          "name": "Seed Leader",
+          "role": 2,
+          "avatar_url": null,
+          "verified": true
+        },
+        {
+          "id": "f0744a3b-71d4-4d96-9e70-b2f3d4acb727",
+          "name": "Seed Employee",
+          "role": 1,
+          "avatar_url": null,
+          "verified": true
+        }
+        // ... other users
+      ]
+    }
+    ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                     | Example Response Body                                                               |
+      | :---------- | :------------------------------------------ | :---------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                           | (Handled by `getUserFromCookie`)                                                    |
+  | `403`       | Employee attempting access                  | `{"status": "error", "message": "Employees do not have permission..."}`           |
+  | `400`       | Requester not associated with a company    | `{"status": "error", "message": "Requesting user is not associated with a company."}` |
+  | `500`       | Database error                              | `{"status": "error", "message": "There was an unexpected error..."}`              |
+
+#### `GET /company/user/:userId`
+
+* **Description:** Fetches specific details (id, name role, hourly wage) for a single user within the company. Access is restricted based on the requester's role and relationship to the target user.
+* **Permissions:** Authenticated User.
+  * Employee: Can only view their own data.
+  * Leader/Owner: Can view data for users in the same company whose role is less than or equal to their own.
+* **URL Parameters:** `:userId` (UUID of the target user).
+* **`curl` Example:**
+    ```bash
+    # Owner fetching Leader's details
+    curl -X GET http://localhost:3000/company/user/LEADER_USER_ID_HERE \
+         -H "Cookie: auth=OWNER_TOKEN_HERE"
+
+    # Employee fetching own details
+    curl -X GET http://localhost:3000/company/user/EMPLOYEE_USER_ID_HERE \
+         -H "Cookie: auth=EMPLOYEE_TOKEN_HERE"
+    ```
+* **Success Response (200 OK):**
+    ```json
+    {
+      "status": "ignore",
+      "message": "User data fetched successfully.",
+      "data": {
+        "id": "f0744a3b-71d4-4d96-9e70-b2f3d4acb727",
+        "name": "Bob Johnson",
+        "hourlyWage": 15,
+        "role": 1
+      }
+    }
+    ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                                     | Example Response Body                                                              |
+      | :---------- | :---------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                           | (Handled by `getUserFromCookie`)                                                   |
+  | `403`       | Admin, or Employee viewing other, or viewing higher role    | `{"status": "error", "message": "Employees can only view their own data."}`        |
+  | `404`       | Target user not found or not in the requester's company     | `{"status": "error", "message": "User not found."}`                                |
+  | `500`       | Database error                                              | `{"status": "error", "message": "There was an unexpected error..."}`             |
+
+#### `PATCH /company/verify/:userId`
+
+* **Description:** Marks a user within the company as verified.
+* **Permissions:** Leader or Owner ([See Table](#6-role-permissions-summary): `company:verify`).
+* **URL Parameters:** `:userId` (UUID of the user to verify).
+* **Request Body:** None.
+* **`curl` Example:**
+    ```bash
+    curl -X PATCH http://localhost:3000/company/verify/USER_TO_VERIFY_ID_HERE \
+         -H "Cookie: auth=LEADER_OR_OWNER_TOKEN_HERE"
+    ```
+* **Success Response (200 OK):**
+  * If user was unverified:
+      ```json
+      { "status": "success", "message": "User verified successfully." }
+      ```
+  * If user was already verified:
+      ```json
+      { "status": "success", "message": "User is already verified." }
+      ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                           | Example Response Body                                                              |
+      | :---------- | :------------------------------------------------ | :--------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                 | (Handled by `getUserFromCookie`)                                                   |
+  | `403`       | Employee attempting action or not in a company   | `{"status": "error", "message": "Only Leaders or Owners can verify users."}`       |
+  | `404`       | Target user not found or not in requester's company | `{"status": "error", "message": "User to verify not found."}`                    |
+  | `500`       | Database error                                    | `{"status": "error", "message": "There was an unexpected error..."}`             |
+
+#### `PATCH /company/user/:userId`
+
+* **Description:** Updates the role and/or hourly wage for a user within the company.
+* **Permissions:** Owner Only ([See Table](#6-role-permissions-summary): `company:update`). Cannot update self or other Owners.
+* **URL Parameters:** `:userId` (UUID of the user to update).
+* **Request Body Example (Update Role and Wage):**
+    ```json
+    {
+      "role": 2,
+      "hourlyWage": 25
+    }
+    ```
+* **Request Body Example (Update Role Only):**
+    ```json
+    {
+      "role": 2
+    }
+    ```
+* **Request Body Example (Update Wage Only):**
+    ```json
+    {
+      "hourlyWage": 22
+    }
+    ```
+* **`curl` Example:**
+    ```bash
+    curl -X PATCH http://localhost:3000/company/user/USER_TO_UPDATE_ID_HERE \
+         -H "Content-Type: application/json" \
+         -H "Cookie: auth=OWNER_TOKEN_HERE" \
+         -d '{ "role": 2, "hourlyWage": 25 }'
+    ```
+* **Success Response (200 OK):**
+    ```json
+    { "status": "success", "message": "User data updated successfully." }
+    ```
+* **Error Responses:**
+
+  | Status Code | Meaning                                                     | Example Response Body                                                                        |
+      | :---------- | :---------------------------------------------------------- | :------------------------------------------------------------------------------------------- |
+  | `401`       | Not authenticated                                           | (Handled by `getUserFromCookie`)                                                             |
+  | `403`       | Not Owner, or attempting to update self/other Owner       | `{"status": "error", "message": "Only Owners can update user data."}` OR `"Cannot update..."` |
+  | `400`       | Invalid data (e.g., missing fields, invalid role/wage)      | `{"status": "error", "message": "Invalid data provided.", "errors": {...}}`                    |
+  | `404`       | Target user not found or not in requester's company         | `{"status": "error", "message": "User to update not found."}`                              |
+  | `500`       | Database error                                              | `{"status": "error", "message": "There was an unexpected error..."}`                         |
+
 ---
 
 ### 7.6 User (`/user`)
@@ -838,7 +1001,8 @@ The application utilizes a PostgreSQL database, typically managed via Supabase.
 
 ### 8.1 Entity-Relationship Diagram (ERD)
 
-*(Placeholder: An ERD image or link should be added here to visually represent the table relationships described below. This diagram shows the connections between tables like `user`, `company`, `schedule`, `ticket`, `training`, etc.)*
+
+![ERD Description](./docs/images/NexusOps_Database_ERD.png)
 
 ### 8.2 Schema Overview
 
